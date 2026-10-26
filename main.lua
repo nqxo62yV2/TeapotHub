@@ -566,8 +566,8 @@ local function GetMobPosition(EnemiesName)
     local count = 0
     for _, v in pairs(workspace.Enemies:GetChildren()) do
         if v.Name == EnemiesName and v:FindFirstChild("HumanoidRootPart") then
-            pos += v.HumanoidRootPart.Position
-            count += 1
+            pos = pos + v.HumanoidRootPart.Position
+            count = count + 1
         end
     end
     if count == 0 then
@@ -1217,12 +1217,11 @@ end
 					end)
 					while true do
 						task.wait()
-						if not plr.Character then
-							continue
-						end
-						local H = WaitForHumanoid()
-						if H and H.Health > 0 then
-							break
+						if plr.Character then
+							local H = WaitForHumanoid()
+							if H and H.Health > 0 then
+								break
+							end
 						end
 					end
 				end
@@ -1319,6 +1318,10 @@ end
 			return
 		end
 		local HumanoidRootPart = plr.Character.HumanoidRootPart
+		-- invalidate any older running teleport so its watcher stops cleanly
+		_G.tpSeq = (_G.tpSeq or 0) + 1
+		-- start the proxy block exactly at the character so the tween path is correct
+		block.CFrame = HumanoidRootPart.CFrame
 		pcall(function()
 			if CanBypassTeleport(targetCFrame) then
 				BypassTP(targetCFrame)
@@ -1328,8 +1331,36 @@ end
 		pcall(function()
 			requestentrance(targetCFrame)
 		end)
+		-- Submarine route to the Submerged Island (Sea 3 only)
 		if World3 then
-			if getdis(targetCFrame.Position, SubmarineCF2) then end
+			pcall(function()
+				local SubmarineCFrame = CFrame.new(10641.0918, -1953.92981, 9825.07031, -0.652825892, -9.2805891e-08, -0.757508039, -2.73638356e-08, 1, -9.89323823e-08, 0.757508039, -4.38572947e-08, -0.652825892)
+				local SubmarineExitCFrame = CFrame.new(-16271.126, 25.5847301, 1371.98755, 0.999396622, -5.78875188e-08, -0.0347310975, 5.52972779e-08, 1, -8.7544322e-08, 0.034731105, 8.28877091e-08, 0.999396741)
+				if getdis(targetCFrame.Position, SubmarineCFrame) < 2000 then
+					local RootPart2 = plr.Character.HumanoidRootPart
+					if RootPart2 and math.abs(SubmarineCFrame.Position.Y - RootPart2.CFrame.Y) > 1000 then
+						repeat
+							task.wait()
+							if not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then
+								break
+							end
+							old_tp(SubmarineExitCFrame)
+							if getdis(SubmarineExitCFrame) < 10 then
+								local Net = Services.ReplicatedStorage.Modules.Net
+								Net["RF/SubmarineWorkerSpeak"]:InvokeServer("AskKilledTikiBoss")
+								task.wait(0.5)
+								Net["RF/SubmarineWorkerSpeak"]:InvokeServer("TravelToSubmergedIsland")
+							end
+						until getdis(targetCFrame.Position) < 2000
+						task.wait(0.6)
+						pcall(function()
+							if plr.Character.HumanoidRootPart:FindFirstChild("BodyClip") then
+								plr.Character.HumanoidRootPart.BodyClip:Destroy()
+							end
+						end)
+					end
+				end
+			end)
 		end
 		local Magnitude = (targetCFrame.Position - HumanoidRootPart.Position).Magnitude
 		local tweenInfo = TweenInfo.new(Magnitude / (Magnitude <= 15 and (getgenv().TweenSpeedNear or 180) or getgenv().TweenSpeedFar or 150), Enum.EasingStyle.Linear)
@@ -1340,14 +1371,22 @@ end
 			block.CFrame = CFrame.new(block.Position.X, targetCFrame.Y, block.Position.Z)
 		end
 		tween:Play()
+		-- watcher: only cancel when a NEW teleport replaces this one (seq-based),
+		-- never cancel just because farming stopped, so manual teleports work too.
+		local mySeq = _G.tpSeq
 		task.spawn(function()
 			while tween.PlaybackState == Enum.PlaybackState.Playing do
-				if shouldTween then
-					task.wait(0.1)
-				else
+				if _G.tpSeq ~= mySeq then
 					tween:Cancel()
 					break
 				end
+				-- keep the character glued to the block (works without any farm active)
+				local char = plr.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and not shouldTween and (root.Position - block.Position).Magnitude > 5 then
+					root.CFrame = block.CFrame
+				end
+				task.wait(0.03)
 			end
 		end)
 		return tween
@@ -2569,10 +2608,24 @@ function FastAttackModule.GetNearbyTargets(character, folder)
         local target = children[i]
         local humanoid = target:FindFirstChild("Humanoid")
         local rootPart = target:FindFirstChild("HumanoidRootPart")
-        if humanoid and rootPart and humanoid.Health > 0 then
-            local distance = (rootPart.Position - characterPosition).Magnitude
-            if distance <= 60 then
-                table.insert(nearbyTargets, target)
+        if humanoid and rootPart and humanoid.Health > 0 and target ~= character then
+            local skip = false
+            -- PvP filters: team skip + only-players mode
+            if _G.NoTeamKill or _G.PvPOnly then
+                local owner = game.Players:GetPlayerFromCharacter(target)
+                if _G.NoTeamKill and owner and owner ~= LocalPlayer and owner.Team and owner.Team == LocalPlayer.Team then
+                    skip = true
+                elseif _G.PvPOnly and folder == Enemies then
+                    skip = true
+                elseif _G.PvPOnly and folder ~= Enemies and not owner then
+                    skip = true
+                end
+            end
+            if not skip then
+                local distance = (rootPart.Position - characterPosition).Magnitude
+                if distance <= 60 then
+                    table.insert(nearbyTargets, target)
+                end
             end
         end
     end
@@ -2659,6 +2712,19 @@ function HitRegistrationModule.Execute()
             local humanoid = target:FindFirstChild("Humanoid")
             local rootPart = target:FindFirstChild("HumanoidRootPart")
             if humanoid and rootPart and humanoid.Health > 0 and target ~= character then
+                local skip = false
+                -- PvP filters: team skip + only-players mode
+                if _G.NoTeamKill or _G.PvPOnly then
+                    local owner = game.Players:GetPlayerFromCharacter(target)
+                    if _G.NoTeamKill and owner and owner ~= LocalPlayer and owner.Team and owner.Team == LocalPlayer.Team then
+                        skip = true
+                    elseif _G.PvPOnly and folder == Enemies then
+                        skip = true
+                    elseif _G.PvPOnly and folder ~= Enemies and not owner then
+                        skip = true
+                    end
+                end
+                if not skip then
                 local distance = (rootPart.Position - humanoidRootPart.Position).Magnitude
                 if distance <= 60 then
                     local targetChildren = target:GetChildren()
@@ -2667,6 +2733,7 @@ function HitRegistrationModule.Execute()
                             table.insert(hitTargets, {target, child})
                         end
                     end
+                end
                 end
             end
         end
@@ -2882,7 +2949,7 @@ Home = Window:MakeTab({
 })
 do
 local SCRIPT_STATUS = "BETA"
-local DISCORD_LINK = "https://discord.gg/zCchBkZxZx"
+local DISCORD_LINK = "https://discord.gg/m6ev7Ch4SQ"
 local WEBSITE_LINK = ""   -- put your website link here once it's online
 local CHANGELOG_URL = ""  -- put a raw GitHub link here when you push changelogs, e.g. https://raw.githubusercontent.com/USER/REPO/main/CHANGELOG.txt
 
@@ -2909,7 +2976,7 @@ Home:AddParagraph("Status: " .. SCRIPT_STATUS, "Teapot-Hub is currently in BETA.
 Home:AddSection("Links (click to copy)")
 Home:AddButton({
     Name = "Copy Discord Server Link",
-    Description = "discord.gg/zCchBkZxZx",
+    Description = "discord.gg/m6ev7Ch4SQ",
     Callback = function()
         if CopyToClipboard(DISCORD_LINK) then
             Window:Notify({ Title = "Copied!", Content = "Discord link copied to clipboard", Time = 4 })
@@ -2974,10 +3041,130 @@ Home:AddButton({
     end
 })
 end
-Discord = Window:MakeTab({
-    Title = "Discord",
-    Icon = "info"
+-- ================= PvP Tab =================
+do
+PvPTab = Window:MakeTab({
+    Title = "PvP",
+    Icon = "swords"
 })
+PvPTab:AddSection("Player Combat")
+PvPTab:AddToggle({
+    Name = "Auto Kill Nearest Player",
+    Description = "Chases the nearest enemy player and kills them (Auto Fast Attack must be ON)",
+    Default = false,
+    Callback = function(value)
+        _G.AutoKillNearestPlayer = value
+        pcall(function()
+            if value then
+                getgenv().TweenSpeedFar = 400
+            elseif getgenv().TweenSpeedFar == 400 then
+                getgenv().TweenSpeedFar = 150
+            end
+        end)
+    end
+})
+spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if not _G.AutoKillNearestPlayer or not World1 and not World2 and not World3 then
+                return
+            end
+            local myChar = plr.Character
+            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            local myHum = myChar and myChar:FindFirstChild("Humanoid")
+            if not (myRoot and myHum and myHum.Health > 0) then
+                return
+            end
+            local best, bestDist
+            for _, other in ipairs(game.Players:GetPlayers()) do
+                if other ~= plr and other.Team ~= plr.Team or other ~= plr and not _G.NoTeamKill then
+                    local c = other.Character
+                    local h = c and c:FindFirstChildOfClass("Humanoid")
+                    local r = c and c:FindFirstChild("HumanoidRootPart")
+                    if h and h.Health > 0 and r and c.Parent == workspace.Characters then
+                        if not myChar:FindFirstChild("HasBuso") then
+                            pcall(function()
+                                game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("Buso")
+                            end)
+                        end
+                        local d = (r.Position - myRoot.Position).Magnitude
+                        if not best or d < bestDist then
+                            best = c
+                            bestDist = d
+                        end
+                    end
+                end
+            end
+            if best and best:FindFirstChild("HumanoidRootPart") then
+                shouldTween = true
+                EquipWeapon(_G.SelectWeapon or "Melee")
+                -- stay slightly above the player so hits register without clipping into them
+                if bestDist <= 40 then
+                    if _G.PvPAutoSkills then
+                        Useskills("Melee", "Z")
+                        task.wait(0.15)
+                        Useskills("Melee", "X")
+                        task.wait(0.15)
+                        Useskills("Melee", "C")
+                    end
+                    block.CFrame = best.HumanoidRootPart.CFrame
+                    local root = myChar:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        root.CFrame = block.CFrame
+                    end
+                else
+                    _tp(best.HumanoidRootPart.CFrame * CFrame.new(0, 8, 0))
+                end
+            else
+                shouldTween = false
+            end
+        end)
+    end
+end)
+PvPTab:AddToggle({
+    Name = "Auto Use Melee Skills (Z/X/C)",
+    Description = "Spams your melee skills while chasing players",
+    Default = true,
+    Callback = function(value)
+        _G.PvPAutoSkills = value
+    end
+})
+PvPTab:AddSection("Attack Filters")
+PvPTab:AddToggle({
+    Name = "PvP Only Attacks",
+    Description = "When ON, fast attack only hits players - never mobs",
+    Default = false,
+    Callback = function(value)
+        _G.PvPOnly = value
+    end
+})
+PvPTab:AddToggle({
+    Name = "Don't Attack Teammates",
+    Description = "Fast attack skips players on your own team",
+    Default = true,
+    Callback = function(value)
+        _G.NoTeamKill = value
+    end
+})
+PvPTab:AddSection("Extra PvP Features")
+PvPTab:AddToggle({
+    Name = "Auto Turn On Race V3 In PvP",
+    Description = "Spams your race ability while fighting",
+    Default = false,
+    Callback = function(value)
+        _G.PvPRace3 = value
+    end
+})
+spawn(function()
+    while task.wait(2) do
+        pcall(function()
+            if _G.PvPRace3 and _G.AutoKillNearestPlayer then
+                game:GetService("ReplicatedStorage").Remotes.CommE:FireServer("ActivateAbility")
+            end
+        end)
+    end
+end)
+end
 Main = Window:MakeTab({
     Title = "Main Farm",
     Icon = "rbxassetid://7733960981"
@@ -3033,50 +3220,6 @@ ESP = Window:MakeTab({
 Player = Window:MakeTab({
     Title = "Misc",
     Icon = "settings"
-})
-Discord:AddDiscordInvite({
-	Title = "SkiringX Hub",
-	Description = "A Best New Script",
-  Banner = Color3.fromRGB(36, 36, 36),
-	Logo = "rbxassetid://72550888769297",
-	Invite = "https://discord.gg/zCchBkZxZx",
-})
-Discord:AddDropdown({
-    Name = "Rating",
-    Options = {"⭐️", "⭐️⭐️", "⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️"},
-    Callback = function(Value)
-        getgenv().SelectStateHaki = Value
-    end
-})
-Discord:AddTextBox({
-    Name = "Review",
-    Placeholder = "Write your review here….",
-    ClearOnFocus = true,
-    Callback = function(Value)
-        getgenv().Job = Value
-    end
-})
-Discord:AddButton({
-    Name = "Send Review",
-    Description = "67",
-    Callback = function()
-        Window:Dialog({
-            Title = "Thank You",
-            Content = "To Rate Or Not Rate",
-            Options = {
-                {
-                    Title = "Confirm",
-                    Callback = function()
-                        game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BuyElectro")
-                    end
-                },
-                {
-                    Title = "Cancel",
-                    Callback = function() end
-                }
-            }
-        })
-    end
 })
 Status:AddSection("Status Boss")
 local EliteHunter = Status:AddParagraph("Elite Hunter", "Status: Loading...")
@@ -4587,7 +4730,7 @@ Main:AddToggle({
         _G.FarmMastery_Dev = Value
     end
 })
-spawn(function()RunSer.RenderStepped:Connect(function() pcall(function()if _G.FarmMastery_Dev or _G.FarmMastery_G or _G.FarmMastery_S then for a,b in pairs(plr.PlayerGui.Notifications:GetChildren())do if b.Name=="NotificationTemplate"then if string.find(b.Text,"Skill locked!")then b:Destroy()end end end end end)end) end)
+spawn(function()game:GetService("RunService").RenderStepped:Connect(function() pcall(function()if _G.FarmMastery_Dev or _G.FarmMastery_G or _G.FarmMastery_S then for a,b in pairs(plr.PlayerGui.Notifications:GetChildren())do if b.Name=="NotificationTemplate"then if string.find(b.Text,"Skill locked!")then b:Destroy()end end end end end)end) end)
 spawn(function()
   while wait(Sec) do
     if _G.FarmMastery_Dev then
@@ -5753,7 +5896,7 @@ spawn(function()
           _tp(CFrame.new(3677.08203125, 62.751937866211, -3144.8332519531))
         elseif GetConnectionEnemies("Darkbeard") then
           local v = GetConnectionEnemies("Darkbeard")          
-		  if v then repeat wait()Attack.Kill(v,_G.Auto_Def_DarkCoat)until _G.Auto_Def_DarkCoat == false or not v.Parent or v.Humanoid.Helath <= 0 end
+		  if v then repeat wait()Attack.Kill(v,_G.Auto_Def_DarkCoat)until _G.Auto_Def_DarkCoat == false or not v.Parent or v.Humanoid.Health <= 0 end
         elseif not GetBP("Fist of Darkness") and not GetConnectionEnemies("Darkbeard") then
           repeat wait(.1) _G.AutoFarmChest = true until not _G.Auto_Def_DarkCoat or GetBP("Fist of Darkness") or GetConnectionEnemies("Darkbeard") _G.AutoFarmChest = false
         end
@@ -6836,7 +6979,7 @@ spawn(function()
     end
 end)
 Kitsune:AddSection("Island Status")
-local FrozenIsland = Kitsune:AddParagraph(" ❄️ Frozen Dimension", "Status: Loading...")
+local FrozenIsland = Kitsune:AddParagraph("❄️ Frozen Dimension", "Status: Loading...")
 spawn(function()
     while task.wait(1) do
         pcall(function()
@@ -6939,6 +7082,62 @@ Kitsune:AddToggle({
         _G.Leviathan1 = value
     end
 })
+Kitsune:AddToggle({
+    Name = "Auto Find Leviathan [Boat]",
+    Description = "Buys a boat and sails the deep sea until a Leviathan spawns (enable Auto Attack Leviathan to fight it)",
+    Default = false,
+    Callback = function(value)
+        _G.AutoFindLeviathan = value
+        pcall(function()
+            if value then
+                getgenv().TweenSpeedFar = 400
+            elseif getgenv().TweenSpeedFar == 400 then
+                getgenv().TweenSpeedFar = 150
+            end
+        end)
+    end
+})
+spawn(function()
+    while wait() do
+        if _G.AutoFindLeviathan and World3 then
+            pcall(function()
+                local leviathan = workspace.SeaBeasts and workspace.SeaBeasts:FindFirstChild("Leviathan")
+                if leviathan and leviathan:FindFirstChild("HumanoidRootPart") then
+                    _tp(CFrame.new(leviathan.HumanoidRootPart.Position.X, workspace.Map["WaterBase-Plane"].Position.Y + 200, leviathan.HumanoidRootPart.Position.Z))
+                    return
+                end
+                local currentBoat = CheckBoat and CheckBoat()
+                if not currentBoat then
+                    local buyPos = CFrame.new(-16927.451, 9.086, 433.864)
+                    TeleportToTarget(buyPos)
+                    if (buyPos.Position - plr.Character.HumanoidRootPart.Position).Magnitude <= 10 then
+                        game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BuyBoat", _G.SelectedBoat)
+                    end
+                else
+                    local player = plr
+                    if player.Character.Humanoid.Sit == false then
+                        _tp(currentBoat.VehicleSeat.CFrame * CFrame.new(0, 1, 0))
+                    else
+                        -- sail deep sea in a big loop until the Leviathan spawns
+                        local wpIndex = (math.floor(tick() / 45) % 4)
+                        local waypoints = {
+                            CFrame.new(57805, 35, -13200),
+                            CFrame.new(57805, 35, 20000),
+                            CFrame.new(57805, 35, -20000),
+                            CFrame.new(-40000, 35, -20000)
+                        }
+                        local targetPos = waypoints[wpIndex + 1]
+                        if (CheckEnemiesBoat and CheckEnemiesBoat()) or (CheckTerrorShark and CheckTerrorShark()) or (CheckPirateGrandBrigade and CheckPirateGrandBrigade()) then
+                            _tp(CFrame.new(targetPos.X, 150, targetPos.Z))
+                        else
+                            _tp(targetPos)
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
 Kitsune:AddSection("Auto Island Kitsune")
 Kitsune:AddToggle({
     Name = "Auto Find Kitsune Island",
@@ -7292,8 +7491,12 @@ Kitsune:AddSection("Auto Prehistoric Island")
 Kitsune:AddButton({
     Name = "Auto Craft Volcanic Magnet",
     Callback = function()
-        local craftRemote = game:GetService("ReplicatedStorage").Modules.Net.RF.Craft
-        craftRemote:InvokeServer("PossibleHardcode", "Volcanic Magnet")
+        local craftRemote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/Craft")
+        if craftRemote then
+            craftRemote:InvokeServer("PossibleHardcode", "Volcanic Magnet")
+        else
+            Window:Notify({ Title = "Craft", Content = "RF/Craft remote not found - are you in the right game?", Time = 4 })
+        end
     end
 })
 Kitsune:AddToggle({
@@ -7304,7 +7507,10 @@ Kitsune:AddToggle({
     end
 })
 task.spawn(function()
-    local craftRemote = game:GetService("ReplicatedStorage").Modules.Net.RF.Craft
+    local craftRemote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/Craft") or game:GetService("ReplicatedStorage").Modules.Net:WaitForChild("RF/Craft", 10)
+    if not craftRemote then
+        return
+    end
     while task.wait(.3) do
         if getgenv().AutoCraftVolcanic then
             pcall(function()
@@ -7714,41 +7920,40 @@ Fruits:AddToggle({
 })
 task.spawn(function()
     while task.wait(Sec or 1) do
-        if not _G.Auto_StartRaid then
-            continue
+        if _G.Auto_StartRaid then
+            pcall(function()
+                local player = game.Players.LocalPlayer
+                local playerGui = player:FindFirstChild("PlayerGui")
+                local mainGui = playerGui and playerGui:FindFirstChild("Main")
+                local topHUD = mainGui and mainGui:FindFirstChild("TopHUDList")
+                if not topHUD or topHUD.RaidTimer.Visible then
+                    return
+                end
+                if not GetBP("Special Microchip") then
+                    return
+                end
+                if World2 then
+                    local button = workspace.Map.CircleIsland.RaidSummon2.Button.Main
+                    if button then
+                        if button:FindFirstChild("ProximityPrompt") then
+                            fireproximityprompt(button.ProximityPrompt)
+                        elseif button:FindFirstChild("ClickDetector") then
+                            fireclickdetector(button.ClickDetector)
+                        end
+                    end
+                end
+                if World3 then
+                    local button = workspace.Map["Boat Castle"].RaidSummon2.Button.Main
+                    if button then
+                        if button:FindFirstChild("ProximityPrompt") then
+                            fireproximityprompt(button.ProximityPrompt)
+                        elseif button:FindFirstChild("ClickDetector") then
+                            fireclickdetector(button.ClickDetector)
+                        end
+                    end
+                end
+            end)
         end
-        pcall(function()
-            local player = game.Players.LocalPlayer
-            local playerGui = player:FindFirstChild("PlayerGui")
-            local mainGui = playerGui and playerGui:FindFirstChild("Main")
-            local topHUD = mainGui and mainGui:FindFirstChild("TopHUDList")
-            if not topHUD or topHUD.RaidTimer.Visible then
-                return
-            end
-            if not GetBP("Special Microchip") then
-                return
-            end
-            if World2 then
-                local button = workspace.Map.CircleIsland.RaidSummon2.Button.Main
-                if button then
-                    if button:FindFirstChild("ProximityPrompt") then
-                        fireproximityprompt(button.ProximityPrompt)
-                    elseif button:FindFirstChild("ClickDetector") then
-                        fireclickdetector(button.ClickDetector)
-                    end
-                end
-            end
-            if World3 then
-                local button = workspace.Map["Boat Castle"].RaidSummon2.Button.Main
-                if button then
-                    if button:FindFirstChild("ProximityPrompt") then
-                        fireproximityprompt(button.ProximityPrompt)
-                    elseif button:FindFirstChild("ClickDetector") then
-                        fireclickdetector(button.ClickDetector)
-                    end
-                end
-            end
-        end)
     end
 end)
 Fruits:AddToggle({
@@ -7795,69 +8000,84 @@ spawn(function()
     local islands = {"Island 1", "Island 2", "Island 3", "Island 4", "Island 5"}
     local currentIsland = nil
     while task.wait(0.3) do
-        if not _G.Raiding then 
+        if not _G.Raiding then
             _G.KillAuraFull = false
-            continue 
-        end
-        local char = plr.Character
-        if not char then continue end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not root or not hum or hum.Health <= 0 then continue end
-        if hum.Sit or hum.PlatformStand or root.Anchored then continue end
-        local closestDist = 999999
-        for _, name in ipairs(islands) do
-            local loc = locations:FindFirstChild(name)
-            if loc then
-                local dist = (root.Position - loc.Position).Magnitude
-                if dist < closestDist then
-                    closestDist = dist
-                    currentIsland = name
-                end
-            end
-        end
-        if not currentIsland then continue end
-        local islandPos = locations:FindFirstChild(currentIsland)
-        if not islandPos then continue end
-        local isHighIsland = (currentIsland == "Island 4" or currentIsland == "Island 5")
-        if isHighIsland then
-            _G.KillAuraFull = true
-            pcall(function()
-                root.CFrame = islandPos.CFrame * CFrame.new(0, 40, 0)
-                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end)
         else
-            _G.KillAuraFull = false
-        end
-        local foundEnemies = false
-        if workspace:FindFirstChild("Enemies") then
-            for _, mob in ipairs(workspace.Enemies:GetChildren()) do
-                local eh = mob:FindFirstChild("Humanoid")
-                local ehrp = mob:FindFirstChild("HumanoidRootPart")
-                if eh and ehrp and eh.Health > 0 then
-                    local checkRange = isHighIsland and 600 or 450
-                    if (ehrp.Position - islandPos.Position).Magnitude < checkRange then
-                        foundEnemies = true
-                        if not isHighIsland then
-                            repeat
-                                task.wait()
-                                Attack.Kill(mob, _G.Raiding)
-                            until not _G.Raiding or not mob.Parent or eh.Health <= 0
+            local char = plr.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local skip = not char
+            if not skip and (not root or not hum or hum.Health <= 0) then
+                skip = true
+            end
+            if not skip and (hum.Sit or hum.PlatformStand or root.Anchored) then
+                skip = true
+            end
+            local islandPos = nil
+            if not skip then
+                local closestDist = 999999
+                for _, name in ipairs(islands) do
+                    local loc = locations:FindFirstChild(name)
+                    if loc then
+                        local dist = (root.Position - loc.Position).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            currentIsland = name
                         end
                     end
                 end
-            end
-        end
-        if not foundEnemies then
-            local idx = table.find(islands, currentIsland)
-            if idx and islands[idx + 1] then
-                local nxt = locations:FindFirstChild(islands[idx + 1])
-                if nxt then
-                    local safePos = nxt.CFrame * CFrame.new(0, 45, 120)
-                    _tp(safePos)
+                if not currentIsland then
+                    skip = true
                 end
-                currentIsland = islands[idx + 1]
-                task.wait(1)
+            end
+            if not skip then
+                islandPos = locations:FindFirstChild(currentIsland)
+                if not islandPos then
+                    skip = true
+                end
+            end
+            if not skip then
+                local isHighIsland = (currentIsland == "Island 4" or currentIsland == "Island 5")
+                if isHighIsland then
+                    _G.KillAuraFull = true
+                    pcall(function()
+                        root.CFrame = islandPos.CFrame * CFrame.new(0, 40, 0)
+                        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    end)
+                else
+                    _G.KillAuraFull = false
+                end
+                local foundEnemies = false
+                if workspace:FindFirstChild("Enemies") then
+                    for _, mob in ipairs(workspace.Enemies:GetChildren()) do
+                        local eh = mob:FindFirstChild("Humanoid")
+                        local ehrp = mob:FindFirstChild("HumanoidRootPart")
+                        if eh and ehrp and eh.Health > 0 then
+                            local checkRange = isHighIsland and 600 or 450
+                            if (ehrp.Position - islandPos.Position).Magnitude < checkRange then
+                                foundEnemies = true
+                                if not isHighIsland then
+                                    repeat
+                                        task.wait()
+                                        Attack.Kill(mob, _G.Raiding)
+                                    until not _G.Raiding or not mob.Parent or eh.Health <= 0
+                                end
+                            end
+                        end
+                    end
+                end
+                if not foundEnemies then
+                    local idx = table.find(islands, currentIsland)
+                    if idx and islands[idx + 1] then
+                        local nxt = locations:FindFirstChild(islands[idx + 1])
+                        if nxt then
+                            local safePos = nxt.CFrame * CFrame.new(0, 45, 120)
+                            _tp(safePos)
+                        end
+                        currentIsland = islands[idx + 1]
+                        task.wait(1)
+                    end
+                end
             end
         end
     end
@@ -9188,7 +9408,7 @@ spawn(function()
           _tp(CFrame.new(3677.08203125, 62.751937866211, -3144.8332519531))
         elseif GetConnectionEnemies("Darkbeard") then
           local v = GetConnectionEnemies("Darkbeard")          
-		  if v then repeat wait()Attack.Kill(v,_G.Auto_Def_DarkCoat)until _G.Auto_Def_DarkCoat == false or not v.Parent or v.Humanoid.Helath <= 0 end
+		  if v then repeat wait()Attack.Kill(v,_G.Auto_Def_DarkCoat)until _G.Auto_Def_DarkCoat == false or not v.Parent or v.Humanoid.Health <= 0 end
         elseif not GetBP("Fist of Darkness") and not GetConnectionEnemies("Darkbeard") then
           repeat wait(.1) _G.AutoFarmChest = true until not _G.Auto_Def_DarkCoat or GetBP("Fist of Darkness") or GetConnectionEnemies("Darkbeard") _G.AutoFarmChest = false
         end
@@ -9711,51 +9931,54 @@ Travel:AddButton({
                 if AutoJoinDungeonServer then
                     AutoJoinDungeonServer = false
                 end
-                continue
-            end
-            if not AutoJoinDungeonServer then
-                local Success, ServerBrowserButton = pcall(function()
-                    return PlayerGui:FindFirstChild("Topbar") and PlayerGui.Topbar:FindFirstChild("Frame") and PlayerGui.Topbar.Frame:FindFirstChild("ServerBrowserButton")
-                end)
-                if Success and ServerBrowserButton then
-                    pcall(function()
-                        ServerBrowserButton:SetAttribute("Clicked_ServerBrowserButton", nil)
-                    end)
-                end
-                continue
-            end
-            local ServerBrowserButton = ((PlayerGui:WaitForChild("Topbar")):WaitForChild("Frame")):WaitForChild("ServerBrowserButton")
-            ClickButtonOnce(ServerBrowserButton, "Clicked_ServerBrowserButton")
-            local ServerBrowserGui = PlayerGui:WaitForChild("ServerBrowser")
-            local StartTime = os.clock()
-            while AutoJoinDungeonServer and os.clock() - StartTime < 5 do
-                if ServerBrowserGui.Enabled ~= false and ServerBrowserGui.Parent then
-                    break
-                end
-                task.wait(0.05)
-            end
-            if not AutoJoinDungeonServer then
-                continue
-            end
-            local DungeonButton = ((ServerBrowserGui:WaitForChild("Frame")):WaitForChild("TeleportButtons")):WaitForChild("Dungeon")
-            StartTime = os.clock()
-            while AutoJoinDungeonServer and os.clock() - StartTime < 5 do
-                if DungeonButton.Visible and DungeonButton.Active then
-                    break
-                end
-                task.wait(0.05)
-            end
-            if not AutoJoinDungeonServer then
-                continue
-            end
-            for i = 1, 3 do
+            else
                 if not AutoJoinDungeonServer then
-                    break
+                    local Success, ServerBrowserButton = pcall(function()
+                        return PlayerGui:FindFirstChild("Topbar") and PlayerGui.Topbar:FindFirstChild("Frame") and PlayerGui.Topbar.Frame:FindFirstChild("ServerBrowserButton")
+                    end)
+                    if Success and ServerBrowserButton then
+                        pcall(function()
+                            ServerBrowserButton:SetAttribute("Clicked_ServerBrowserButton", nil)
+                        end)
+                    end
+                else
+                    local ServerBrowserButton = ((PlayerGui:WaitForChild("Topbar")):WaitForChild("Frame")):WaitForChild("ServerBrowserButton")
+                    ClickButtonOnce(ServerBrowserButton, "Clicked_ServerBrowserButton")
+                    local ServerBrowserGui = PlayerGui:WaitForChild("ServerBrowser")
+                    local StartTime = os.clock()
+                    while AutoJoinDungeonServer and os.clock() - StartTime < 5 do
+                        if ServerBrowserGui.Enabled ~= false and ServerBrowserGui.Parent then
+                            break
+                        end
+                        task.wait(0.05)
+                    end
+                    local skip = not AutoJoinDungeonServer
+                    local DungeonButton
+                    if not skip then
+                        DungeonButton = ((ServerBrowserGui:WaitForChild("Frame")):WaitForChild("TeleportButtons")):WaitForChild("Dungeon")
+                        StartTime = os.clock()
+                        while AutoJoinDungeonServer and os.clock() - StartTime < 5 do
+                            if DungeonButton.Visible and DungeonButton.Active then
+                                break
+                            end
+                            task.wait(0.05)
+                        end
+                        if not AutoJoinDungeonServer then
+                            skip = true
+                        end
+                    end
+                    if not skip then
+                        for i = 1, 3 do
+                            if not AutoJoinDungeonServer then
+                                break
+                            end
+                            ClickButton(DungeonButton)
+                            task.wait(0.25)
+                        end
+                        AutoJoinDungeonServer = false
+                    end
                 end
-                ClickButton(DungeonButton)
-                task.wait(0.25)
             end
-            AutoJoinDungeonServer = false
         end
     end
 })
@@ -10352,7 +10575,7 @@ ESP:AddToggle({
 })
 ESP:AddToggle({
     Name = "Chest ESP",
-    Description = "Hiển thị chuẩn xác từng loại rương, không bị lặp ESP",
+    Description = "Accurate ESP per chest type, no duplicate ESP",
     Default = false,
     Callback = function(Value)
         getgenv().ChestEsp = Value
@@ -10421,7 +10644,7 @@ ESP:AddToggle({
                         specialLabel.TextSize = 12
                         specialLabel.Font = Enum.Font.GothamBold
                         specialLabel.TextXAlignment = Enum.TextXAlignment.Center
-                        specialLabel.Text = "⚡ Rare Item Drop"
+                        specialLabel.Text = " Rare Item Drop"
                     end
                     billboard.Adornee = targetPart
                     billboard.Parent = targetPart
@@ -11465,35 +11688,60 @@ ESP:AddToggle({
                     end
                 end
                 while getgenv().NoAnimationV2 and task.wait(LOOP_DELAY) do
+                    local proceed = true
                     local attackFn = getgenv().attackMelee
                     if typeof(attackFn) ~= "function" then
                         attackFn = findAttackMelee()
                         if typeof(attackFn) ~= "function" then
-                            continue
+                            proceed = false
                         end
                     end
-                    local char = LP.Character
-                    if not char then continue end
-                    local tool = char:FindFirstChildOfClass("Tool")
-                    if not tool then continue end
-                    if not WeaponData then
+                    local char
+                    if proceed then
+                        char = LP.Character
+                        if not char then
+                            proceed = false
+                        end
+                    end
+                    local tool
+                    if proceed then
+                        tool = char:FindFirstChildOfClass("Tool")
+                        if not tool then
+                            proceed = false
+                        end
+                    end
+                    if proceed and not WeaponData then
                         WeaponData = safeRequireWeaponData()
-                        if not WeaponData then continue end
+                        if not WeaponData then
+                            proceed = false
+                        end
                     end
-                    local weaponName = tool:GetAttribute("WeaponName")
-                    if not weaponName then continue end
-                    local w = WeaponData[weaponName]
-                    if not w then continue end
-                    if getgenv()._FastAttackBackup.Hitbox == nil then
-                        getgenv()._FastAttackBackup.Hitbox = w.HitboxMagnitude
+                    local weaponName
+                    if proceed then
+                        weaponName = tool:GetAttribute("WeaponName")
+                        if not weaponName then
+                            proceed = false
+                        end
                     end
-                    applyFastUpvalues(attackFn)
-                    w.HitboxMagnitude = HITBOX
-                    pcall(function()
-                        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                        VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                    end)
-                    pcall(attackFn)
+                    local w
+                    if proceed then
+                        w = WeaponData[weaponName]
+                        if not w then
+                            proceed = false
+                        end
+                    end
+                    if proceed then
+                        if getgenv()._FastAttackBackup.Hitbox == nil then
+                            getgenv()._FastAttackBackup.Hitbox = w.HitboxMagnitude
+                        end
+                        applyFastUpvalues(attackFn)
+                        w.HitboxMagnitude = HITBOX
+                        pcall(function()
+                            VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                            VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                        end)
+                        pcall(attackFn)
+                    end
                 end
                 getgenv()._FastAttackRunning = false
             end)
@@ -11717,7 +11965,7 @@ Player:AddToggle({
                 while getgenv().translation do
                     task.wait(0.1)
                     local char = LocalPlayer.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
+                    if char and char:FindFirstChild("HumanoidRootPart") then
                     local hrp = char.HumanoidRootPart
                     local targetEnemy = nil
                     local shortestDistance = math.huge
@@ -11755,6 +12003,7 @@ Player:AddToggle({
                             if conn then conn:Disconnect() end
                             break
                         end
+                    end
                     end
                 end
             end)()
@@ -11876,7 +12125,7 @@ Player:AddToggle({
 })
 Player:AddToggle({
     Name = "Auto Quest In Farm Bone - Cake",
-    Default = True,
+    Default = true,
     Callback = function(Value)
         _G.AcceptQuestC = Value
     end
@@ -12052,6 +12301,34 @@ Player:AddButton({
     end
 })
 Player:AddSection("Sword Kill")
+do
+local SwordKillThread
+HookSwordKill = function(character)
+    if SwordKillThread then
+        return
+    end
+    SwordKillThread = task.spawn(function()
+        local vim = game:GetService("VirtualInputManager")
+        while getgenv().SwordKillEnabled do
+            pcall(function()
+                local char = plr.Character
+                local tool = char and char:FindFirstChildOfClass("Tool")
+                -- sword one hit: spam sword swings, the fast attack system lands the hits
+                if tool and (tool:GetAttribute("WeaponType") == "Sword" or tool:GetAttribute("WeaponType") == "Melee") then
+                    vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                    vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                end
+            end)
+            task.wait(0.35)
+        end
+        SwordKillThread = nil
+    end)
+end
+ClearSwordKillConnections = function()
+    getgenv().SwordKillEnabled = false
+    SwordKillThread = nil
+end
+end
 Player:AddToggle({
     Name = "Sword One Hit",
     Default = false,
@@ -12190,7 +12467,7 @@ Player:AddToggle({
     Callback = function(Value)
         getgenv().translation = Value
         if getgenv().translation then
-            print("[AutoTranslate] Đã bật chế độ dịch tự động chuẩn Roblox.")
+            print("[AutoTranslate] Turned ON, auto-translating game text using Roblox's standard translator.")
             task.spawn(function()
                 while getgenv().translation do
                     local playerGui = player:FindFirstChild("PlayerGui")
@@ -12220,7 +12497,7 @@ Player:AddToggle({
                 end
             end)
         else
-            print("[AutoTranslate] Đã tắt, khôi phục văn bản gốc.")
+            print("[AutoTranslate] Turned OFF, restoring original text.")
             for gui, originalText in pairs(originalTexts) do
                 if gui and gui.Parent then
                     gui.Text = originalText
@@ -12268,9 +12545,9 @@ Player:AddToggle({
         getgenv().translation = Value
         SaveSettings()
         if Value then
-            print("Chức năng đã được BẬT và đã lưu trạng thái!")
+            print("Feature turned ON and state saved!")
         else
-            print("Chức năng đã được TẮT và đã lưu trạng thái!")
+            print("Feature turned OFF and state saved!")
         end
     end
 })
@@ -12314,7 +12591,7 @@ Player:AddToggle({
         getgenv().translation = Value
         local targetLang = getPlayerLanguage()
         if getgenv().translation then
-            print("Đang bật dịch sang: " .. targetLang)
+            print("Translating to: " .. targetLang)
             task.spawn(function()
                 while getgenv().translation do
                     local playerGui = player:FindFirstChild("PlayerGui")
@@ -12338,7 +12615,7 @@ Player:AddToggle({
                 end
             end)
         else
-            print("Đã tắt dịch, khôi phục văn bản gốc...")
+            print("Translation turned OFF, restoring original text...")
             for gui, originalText in pairs(originalTexts) do
                 if gui and gui.Parent then
                     gui.Text = originalText
@@ -12596,7 +12873,7 @@ Player:AddToggle({
     end
 })
 Player:AddToggle({
-    Name = "Reedem All Codes",
+    Name = "Redeem All Codes",
     Default = false,
     Callback = function(Value)
         getgenv().RAC = Value
