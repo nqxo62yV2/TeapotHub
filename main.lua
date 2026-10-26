@@ -37,6 +37,106 @@ end
 if not CheckExecutor() then return end
 if not game:IsLoaded() then game.Loaded:Wait() end
 
+-- ================= Teapot Loader =================
+-- Baseline snapshot (used by the Config system later)
+LoaderState = { BaseG = {}, BaseGenv = {} }
+for k, v in pairs(_G or {}) do
+    local t = typeof(v)
+    if t == "boolean" or t == "number" or t == "string" then
+        LoaderState.BaseG[k] = v
+    end
+end
+pcall(function()
+    for k, v in pairs(getgenv()) do
+        local t = typeof(v)
+        if t == "boolean" or t == "number" or t == "string" then
+            LoaderState.BaseGenv[k] = v
+        end
+    end
+end)
+
+-- Loading ScreenGui
+local LoaderGui, LoaderBar
+pcall(function()
+    local hub = gethui and gethui() or game:GetService("CoreGui")
+    LoaderGui = Instance.new("ScreenGui")
+    LoaderGui.Name = "TeapotLoader" .. tostring(math.random(100000, 999999))
+    LoaderGui.IgnoreGuiInset = true
+    LoaderGui.ResetOnSpawn = false
+    LoaderGui.Parent = hub
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+    bg.BorderSizePixel = 0
+    bg.Parent = LoaderGui
+
+    local logo = Instance.new("TextLabel")
+    logo.Size = UDim2.new(1, 0, 0, 60)
+    logo.Position = UDim2.new(0, 0, 0.5, -60)
+    logo.BackgroundTransparency = 1
+    logo.Font = Enum.Font.GothamBold
+    logo.TextColor3 = Color3.fromRGB(88, 101, 242)
+    logo.TextSize = 42
+    logo.Text = "Teapot-Hub"
+    logo.Parent = bg
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, 0, 0, 30)
+    status.Position = UDim2.new(0, 0, 0.5, 10)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.Gotham
+    status.TextColor3 = Color3.fromRGB(200, 200, 200)
+    status.TextSize = 18
+    status.Text = "Loading, Please Wait..."
+    status.Parent = bg
+    LoaderState.StatusLabel = status
+
+    local barBg = Instance.new("Frame")
+    barBg.Size = UDim2.new(0, 400, 0, 6)
+    barBg.Position = UDim2.new(0.5, -200, 0.5, 60)
+    barBg.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    barBg.BorderSizePixel = 0
+    barBg.Parent = bg
+    local barCorner = Instance.new("UICorner")
+    barCorner.CornerRadius = UDim.new(1, 0)
+    barCorner.Parent = barBg
+
+    LoaderBar = Instance.new("Frame")
+    LoaderBar.Size = UDim2.new(0, 0, 1, 0)
+    LoaderBar.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    LoaderBar.BorderSizePixel = 0
+    LoaderBar.Parent = barBg
+    local barCorner2 = Instance.new("UICorner")
+    barCorner2.CornerRadius = UDim.new(1, 0)
+    barCorner2.Parent = LoaderBar
+
+    task.spawn(function()
+        while LoaderGui.Parent do
+            LoaderBar:TweenSize(UDim2.new(0.35, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quad, 1, true)
+            task.wait(1)
+            if not LoaderGui.Parent then break end
+            LoaderBar:TweenSize(UDim2.new(0.75, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quad, 1, true)
+            task.wait(1)
+        end
+    end)
+end)
+function LoaderStatus(text)
+    pcall(function()
+        if LoaderState.StatusLabel then
+            LoaderState.StatusLabel.Text = text
+        end
+    end)
+end
+function LoaderFinish()
+    pcall(function()
+        if LoaderGui then
+            LoaderGui:Destroy()
+        end
+    end)
+end
+-- ==================================================
+
 local Services = {Players=game:GetService("Players"),ReplicatedStorage=game:GetService("ReplicatedStorage"),TeleportService=game:GetService("TeleportService"),TweenService=game:GetService("TweenService"),Lighting=game:GetService("Lighting"),VirtualInputManager=game:GetService("VirtualInputManager"),RunService=game:GetService("RunService"),UserInputService=game:GetService("UserInputService"),Workspace=game:GetService("Workspace"),HttpService=game:GetService("HttpService"),StarterGui=game:GetService("StarterGui"),CoreGui=game:GetService("CoreGui")}
 local plr = Services.Players.LocalPlayer
 local character = plr.Character or plr.CharacterAdded:Wait()
@@ -44,7 +144,7 @@ local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 _G = _G or {}
 _G.SelectWeapon = _G.SelectWeapon or "Melee"
-_G.FastAttack = _G.FastAttack or true
+_G.FastAttack = _G.FastAttack == true
 getgenv().Team = getgenv().Team or "Pirates"
 local World1 = game.PlaceId == 2753915549 or game.PlaceId == 85211729168715
 local World2 = game.PlaceId == 4442272183 or game.PlaceId == 79091703265657
@@ -906,30 +1006,349 @@ end
 			end)
 		end
 	end)
-	_tp = function(target)
-		local character = plr.Character
-		if not character or not character:FindFirstChild("HumanoidRootPart") then
-			return
+	-- ================ BannaCat TP Bypass (merged) ================
+	old_tp = function(target)
+		if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			plr.Character.HumanoidRootPart.CFrame = target
 		end
-		local rootPart = character.HumanoidRootPart
-		local distance = (target.Position - rootPart.Position).Magnitude
-		local tweenInfo = TweenInfo.new(distance / 199, Enum.EasingStyle.Linear)
-		local tween = game:GetService("TweenService"):Create(block, tweenInfo, {
-			CFrame = target
-		})
-		if plr.Character.Humanoid.Sit == true then
-			block.CFrame = CFrame.new(block.Position.X, target.Y, block.Position.Z)
+	end
+	do
+		local RS = Services.ReplicatedStorage
+		local SubmarineCFrame = CFrame.new(10641.0918, -1953.92981, 9825.07031, -0.652825892, -9.2805891e-08, -0.757508039, -2.73638356e-08, 1, -9.89323823e-08, 0.757508039, -4.38572947e-08, -0.652825892)
+		local SubmarineExitCFrame = CFrame.new(-16271.126, 25.5847301, 1371.98755, 0.999396622, -5.78875188e-08, -0.0347310975, 5.52972779e-08, 1, -8.7544322e-08, 0.034731105, 8.28877091e-08, 0.999396741)
+		Convert_CFrame = function(what)
+			if not what then
+				return
+			end
+			if typeof(what) == "Vector3" then
+				return CFrame.new(what)
+			end
+			if typeof(what) == "CFrame" then
+				return what
+			end
+			if typeof(what) == "Model" then
+				return what:GetPivot()
+			end
+			if what.CFrame then
+				return what.CFrame
+			end
+			return nil
 		end
-		tween:Play()
-		task.spawn(function()
-			while tween.PlaybackState == Enum.PlaybackState.Playing do
-				if not shouldTween then
-					tween:Cancel()
+		GetDistance = function(target, targetPart, flat)
+			if target == nil then
+				return 9e9
+			end
+			local Character = plr.Character
+			if not Character then
+				return 9e9
+			end
+			local Humanoid = Character:FindFirstChild("Humanoid")
+			if not Humanoid or Humanoid.Health <= 0 then
+				return 9e9
+			end
+			if targetPart == nil then
+				targetPart = Character:FindFirstChild("HumanoidRootPart")
+				if not targetPart then
+					return 9e9
+				end
+			end
+			local a = Convert_CFrame(target)
+			local b = Convert_CFrame(targetPart)
+			if flat then
+				return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+			end
+			return (a.Position - b.Position).Magnitude
+		end
+		InArea = function(area)
+			local _WorldOrigin = workspace:FindFirstChild("_WorldOrigin")
+			if not _WorldOrigin then
+				return {
+					Name = ""
+				}
+			end
+			local target = Convert_CFrame(area)
+			for _, v in next, _WorldOrigin.Locations:GetChildren() do
+				if v:FindFirstChild("Mesh") and (target.Position - v.Position).Magnitude <= v.Mesh.Scale.X then
+					return v
+				end
+			end
+			return {
+				Name = ""
+			}
+		end
+		GetSpawnPoint = function(spawn)
+			local Pirates_ = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("PlayerSpawns") and workspace._WorldOrigin.PlayerSpawns:FindFirstChild("Pirates")
+			if not Pirates_ then
+				return
+			end
+			for _, v in next, Pirates_:GetChildren() do
+				if v:FindFirstChild("Part") and (v.Part.Position - spawn.Position).Magnitude <= 2500 then
+					return v
+				end
+			end
+		end
+		CheckLegendaryItems = function()
+			local function findTool(toolName)
+				for _, v in next, plr.Backpack:GetChildren() do
+					if v:IsA("Tool") and (v.Name == toolName or string.find(v.Name, toolName)) then
+						return v
+					end
+				end
+				for _, v in next, plr.Character:GetChildren() do
+					if v:IsA("Tool") and (v.Name == toolName or string.find(v.Name, toolName)) then
+						return v
+					end
+				end
+			end
+			if findTool("God's Chalice") or findTool("Fist of Darkness") or findTool("Sweet Chalice") or findTool("Hallow Essence") or findTool("Flower1") then
+				return true
+			end
+			return false
+		end
+		WaitForHumanoid = function()
+			local Character = plr.Character
+			if not Character then
+				return nil
+			end
+			local Humanoid = Character:FindFirstChild("Humanoid")
+			if Humanoid then
+				return Humanoid
+			end
+			local timeout = tick() + 5
+			local Humanoid2
+			while true do
+				if not (tick() < timeout) then
+					return nil
+				end
+				Humanoid2 = Character:FindFirstChild("Humanoid")
+				if Humanoid2 then
 					break
 				end
 				task.wait(0.1)
 			end
+			return Humanoid2
+		end
+		checkinventory = function(itemName)
+			if itemName then
+				for _, v in pairs(RS.Remotes.CommF_:InvokeServer("getInventory")) do
+					if v.Name == itemName then
+						return true
+					end
+				end
+			end
+			return false
+		end
+		getdis = function(pos, cf)
+			local Character = plr.Character
+			if not Character or not Character:FindFirstChild("HumanoidRootPart") then
+				return 9e9
+			end
+			local anchor = cf or Character.HumanoidRootPart.CFrame
+			return (CFrame.new(pos.X, anchor.Y, pos.Z).Position - CFrame.new(anchor.X, anchor.Y, anchor.Z).Position).Magnitude
+		end
+		CanBypassTeleport = function(target)
+			local Name = InArea(target).Name
+			if Name == "" then
+				return false
+			end
+			if not Name:find("Dimension") then
+				if not (Name:find("Submerged") or Name == "Sealed Cavern") then
+					if not Name:lower():find("under") and not CheckLegendaryItems() then
+						if plr.Data and plr.Data.LastSpawnPoint and plr.Data.LastSpawnPoint.Value == "SubmergedIsland" then
+							return false
+						end
+						if GetDistance(target.Position) <= 3500 then
+							return false
+						end
+						return true
+					end
+				end
+			end
+			return false
+		end
+		GetBypassCFrame = function(target)
+			local huge = math.huge
+			local best
+			local HumanoidRootPart = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+			if not HumanoidRootPart then
+				return nil
+			end
+			if not workspace:FindFirstChild("_WorldOrigin") then
+				return nil
+			end
+			local PlayerSpawns = workspace._WorldOrigin:FindFirstChild("PlayerSpawns")
+			if not PlayerSpawns or not PlayerSpawns:FindFirstChild("Pirates") then
+				return nil
+			end
+			for _, v in next, PlayerSpawns.Pirates:GetChildren() do
+				if v:FindFirstChild("Part") then
+					local toPlayer = (v.Part.Position - HumanoidRootPart.Position).Magnitude
+					local toTarget = (v.Part.Position - target.Position).Magnitude
+					if toTarget >= 3000 and GetSpawnPoint(v.Part) ~= GetSpawnPoint(HumanoidRootPart) and toPlayer <= 10000 and toTarget <= huge then
+						huge = toTarget
+						best = v
+					end
+				end
+			end
+			return best
+		end
+		BypassTP = function(target)
+			local Character = plr.Character
+			if not Character then
+				return
+			end
+			local Humanoid = WaitForHumanoid()
+			if not Humanoid or Humanoid.Health <= 0 then
+				return
+			end
+			if CanBypassTeleport(target) and GetBypassCFrame(target) then
+				local spawnPart = GetBypassCFrame(target)
+				if spawnPart and spawnPart:FindFirstChild("Part") then
+					pcall(function()
+						if Character:FindFirstChild("LastSpawnPoint") then
+							Character.LastSpawnPoint.Disabled = true
+						end
+						RS.Remotes.CommF_:InvokeServer("SetLastSpawnPoint", spawnPart.Name)
+						RS.Remotes.CommF_:InvokeServer("SetSpawnPoint")
+						Character:PivotTo(spawnPart.Part.CFrame)
+						Humanoid:ChangeState(15)
+					end)
+					while true do
+						task.wait()
+						if not plr.Character then
+							continue
+						end
+						local H = WaitForHumanoid()
+						if H and H.Health > 0 then
+							break
+						end
+					end
+				end
+			end
+		end
+		totopofgreattree = function()
+			if getdis(CFrame.new(28310.0234, 14895.1123, 109.456741)) > 1500 then
+				RS.Remotes.CommF_:InvokeServer("requestEntrance", Vector3.new(28310.0234, 14895.1123, 109.456741))
+				task.wait(0.3)
+			end
+			local target = CFrame.new(28607.5352, 14896.5449, 106.011726)
+			old_tp(target)
+			repeat
+				task.wait()
+			until getdis(target) <= 5 or not plr.Character
+			task.wait(0.5)
+			for _ = 1, 4 do
+				pcall(function()
+					RS.Remotes.CommF_:InvokeServer("RaceV4Progress", "TeleportBack")
+				end)
+			end
+		end
+		requestentrance = function(target)
+			local Position = target
+			if typeof(target) == "CFrame" then
+				Position = target.Position
+			end
+			local entrances
+			if World1 then
+				entrances = {
+					Sky3 = Vector3.new(-7894, 5547, -380),
+					Sky3Exit = Vector3.new(-4607, 874, -1667),
+					UnderWater = Vector3.new(61163, 11, 1819),
+					["Underwater City"] = Vector3.new(61165.19140625, 0.18704631924629211, 1897.379150390625),
+					["Pirate Village"] = Vector3.new(-1242.4625244140625, 4.7870597839355469, 3901.282958984375),
+					UnderwaterExit = Vector3.new(4050, -1, -1814)
+				}
+			elseif World2 then
+				entrances = {
+					["Swan Mansion"] = Vector3.new(-390, 332, 673),
+					["Swan Room"] = Vector3.new(2285, 15, 905),
+					["Cursed Ship"] = Vector3.new(923, 126, 32852),
+					["Zombie Island"] = Vector3.new(-6509, 83, -133)
+				}
+			else
+				entrances = {
+					["Hydra Island"] = Vector3.new(5657.88623046875, 1013.0790405273438, -335.4996337890625),
+					Mansion = Vector3.new(-12462, 375, -7552),
+					Castle = Vector3.new(-5036, 315, -3179),
+					["Temple of Time"] = Vector3.new(28286, 14897, 103),
+					["Greate Tree"] = Vector3.new(3024.1709, 2280.69434, -7325.12793)
+				}
+				if not checkinventory("Valkyrie Helm") then
+					return
+				end
+			end
+			local best
+			local huge = math.huge
+			for _, v in pairs(entrances) do
+				local Magnitude = (v - Position).Magnitude
+				if Magnitude < huge then
+					huge = Magnitude
+					best = v
+				end
+			end
+			if best and huge < getdis(Position) then
+				pcall(function()
+					if _G.TweenCache then
+						_G.TweenCache:Cancel()
+					end
+				end)
+				local ok = not (best.X == 3024.1709 and best.Y == 2280.69434 and best.Z == -7325.12793)
+				if not ok then
+					ok = not (RS.Remotes.CommF_:InvokeServer("RaceV4Progress", "Check") >= 2)
+				end
+				if ok then
+					if huge < getdis(Position) then
+						RS.Remotes.CommF_:InvokeServer("requestEntrance", best)
+						task.wait(1)
+					end
+				else
+					totopofgreattree()
+					task.wait(1)
+				end
+			end
+		end
+	end
+	_tp = function(target)
+		local targetCFrame = Convert_CFrame(target)
+		if not targetCFrame then
+			return
+		end
+		if not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then
+			return
+		end
+		local HumanoidRootPart = plr.Character.HumanoidRootPart
+		pcall(function()
+			if CanBypassTeleport(targetCFrame) then
+				BypassTP(targetCFrame)
+				task.wait(0.5)
+			end
 		end)
+		pcall(function()
+			requestentrance(targetCFrame)
+		end)
+		if World3 then
+			if getdis(targetCFrame.Position, SubmarineCF2) then end
+		end
+		local Magnitude = (targetCFrame.Position - HumanoidRootPart.Position).Magnitude
+		local tweenInfo = TweenInfo.new(Magnitude / (Magnitude <= 15 and (getgenv().TweenSpeedNear or 180) or getgenv().TweenSpeedFar or 150), Enum.EasingStyle.Linear)
+		local tween = Services.TweenService:Create(block, tweenInfo, {
+			CFrame = CFrame.new(targetCFrame.Position)
+		})
+		if plr.Character.Humanoid.Sit == true then
+			block.CFrame = CFrame.new(block.Position.X, targetCFrame.Y, block.Position.Z)
+		end
+		tween:Play()
+		task.spawn(function()
+			while tween.PlaybackState == Enum.PlaybackState.Playing do
+				if shouldTween then
+					task.wait(0.1)
+				else
+					tween:Cancel()
+					break
+				end
+			end
+		end)
+		return tween
 	end
 	TeleportToTarget = function(targetCFrame)
 		if (targetCFrame.Position - plr.Character.HumanoidRootPart.Position).Magnitude > 1000 then
@@ -2182,6 +2601,7 @@ function FastAttackModule.GetAllTargets(character)
     return allTargets
 end
 function FastAttackModule.ExecuteFastAttack()
+    if not _G.FastAttack then return end
     local character = LocalPlayer.Character
     if not character then return end
     local tool = character:FindFirstChildOfClass("Tool")
@@ -2224,6 +2644,7 @@ local function InitializeHitRegistration()
 end
 InitializeHitRegistration()
 function HitRegistrationModule.Execute()
+    if not _G.FastAttack then return end
     local character = LocalPlayer.Character
     if not character then return end
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
@@ -2433,12 +2854,14 @@ MainButton.MouseButton1Click:Connect(function()
     task.wait(0.05)
     game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
 end)
+LoaderStatus("Loading UI Library...")
 local Library
 do
     local ok, err = pcall(function()
-        Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/tlredz/Scripts/refs/heads/main/Library/main.luau"))()
+        Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/tlredz/Library/refs/heads/main/redz-V5-remake/main.luau"))()
     end)
     if not ok or type(Library) ~= "table" then
+        LoaderFinish()
         error("Teapot-Hub: Failed to load UI library - " .. tostring(err), 0)
     end
 end
@@ -11365,6 +11788,7 @@ Player:AddToggle({
     Name = "⚠️ Auto Super Fast Attack",
     Default = true,
     Callback = function(Value)
+        _G.FastAttack = Value
         _G.AntiAFK = Value
     end
 })
@@ -11868,7 +12292,7 @@ spawn(function()
 end)
 Player:AddToggle({
     Name = "Auto Remove Dame Text",
-    Default = true,
+    Default = false,
     Callback = function(Value)
         getgenv().RemoveText = Value
         game:GetService("ReplicatedStorage").Assets.GUI.DamageCounter.Enabled = not getgenv().RemoveText
