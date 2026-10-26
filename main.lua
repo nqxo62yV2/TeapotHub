@@ -12420,11 +12420,9 @@ local function SaveCurrentState()
         end
     end)
 end
-pcall(function()
-    if queue_on_teleport then
-        queue_on_teleport("loadstring(game:HttpGet(''))()")
-    end
-end)
+-- (removed: no queue_on_teleport payload - old line queued an empty
+--  loadstring(game:HttpGet(''))() into every server hop, which crashed
+--  with [string ""]:1: attempt to call a nil value)
 LocalPlayer.OnTeleport:Connect(function(teleportState)
     if teleportState == Enum.TeleportState.Started then
         SaveCurrentState()
