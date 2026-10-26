@@ -56,6 +56,7 @@ pcall(function()
 end)
 
 -- Loading ScreenGui
+do
 local LoaderGui, LoaderBar
 pcall(function()
     local hub = gethui and gethui() or game:GetService("CoreGui")
@@ -134,6 +135,7 @@ function LoaderFinish()
             LoaderGui:Destroy()
         end
     end)
+end
 end
 -- ==================================================
 
@@ -2873,6 +2875,105 @@ local Window = Library:MakeWindow({
 Minimizer = Window:NewMinimizer({
     KeyCode = Enum.KeyCode.LeftControl
 })
+LoaderStatus("Building interface...")
+Home = Window:MakeTab({
+    Title = "Home",
+    Icon = "house"
+})
+do
+local SCRIPT_STATUS = "BETA"
+local DISCORD_LINK = "https://discord.gg/zCchBkZxZx"
+local WEBSITE_LINK = ""   -- put your website link here once it's online
+local CHANGELOG_URL = ""  -- put a raw GitHub link here when you push changelogs, e.g. https://raw.githubusercontent.com/USER/REPO/main/CHANGELOG.txt
+
+local function CopyToClipboard(text)
+    if setclipboard then
+        setclipboard(text)
+        return true
+    elseif toclipboard then
+        toclipboard(text)
+        return true
+    end
+    return false
+end
+
+Home:AddDiscordInvite({
+    Title = "SkiringX Hub",
+    Description = "A Best New Script",
+    Banner = Color3.fromRGB(36, 36, 36),
+    Logo = "rbxassetid://72550888769297",
+    Invite = DISCORD_LINK
+})
+Home:AddSection("Script Status")
+Home:AddParagraph("Status: " .. SCRIPT_STATUS, "Teapot-Hub is currently in BETA. Some features are experimental - report bugs in our Discord so they get fixed fast.")
+Home:AddSection("Links (click to copy)")
+Home:AddButton({
+    Name = "Copy Discord Server Link",
+    Description = "discord.gg/zCchBkZxZx",
+    Callback = function()
+        if CopyToClipboard(DISCORD_LINK) then
+            Window:Notify({ Title = "Copied!", Content = "Discord link copied to clipboard", Time = 4 })
+        else
+            Window:Notify({ Title = "Copy Failed", Content = "Your executor does not support clipboard", Time = 4 })
+        end
+    end
+})
+Home:AddButton({
+    Name = "Copy Website Link",
+    Description = "Coming soon",
+    Callback = function()
+        if WEBSITE_LINK == "" then
+            Window:Notify({ Title = "Website", Content = "Website is coming soon!", Time = 4 })
+            return
+        end
+        if CopyToClipboard(WEBSITE_LINK) then
+            Window:Notify({ Title = "Copied!", Content = "Website link copied to clipboard", Time = 4 })
+        else
+            Window:Notify({ Title = "Copy Failed", Content = "Your executor does not support clipboard", Time = 4 })
+        end
+    end
+})
+Home:AddSection("Licence")
+Home:AddParagraph("Licence Status", "Coming soon - licence / key system will appear here in a future update.")
+Home:AddButton({
+    Name = "Check Licence Status",
+    Description = "",
+    Callback = function()
+        Window:Notify({ Title = "Licence", Content = "Licence status: coming soon", Time = 4 })
+    end
+})
+Home:AddSection("Changelogs")
+Home:AddButton({
+    Name = "Open Changelogs",
+    Description = "Automatically pulls the latest patch notes",
+    Callback = function()
+        task.spawn(function()
+            if CHANGELOG_URL ~= "" then
+                local ok, result = pcall(function()
+                    return game:HttpGet(CHANGELOG_URL)
+                end)
+                if ok and type(result) == "string" and #result > 0 and string.find(result, "404: Not Found", 1, true) == nil then
+                    Window:Dialog({
+                        Title = "Changelogs",
+                        Content = result,
+                        Options = {
+                            { Title = "Close", Callback = function() end }
+                        }
+                    })
+                    return
+                end
+            end
+            Window:Dialog({
+                Title = "Changelogs",
+                Content = "Coming soon - changelogs will show up here automatically as soon as the update system goes live.",
+                Options = {
+                    { Title = "Okay", Callback = function() end }
+                }
+            })
+        end)
+    end
+})
+end
 Discord = Window:MakeTab({
     Title = "Discord",
     Icon = "info"
@@ -7900,6 +8001,25 @@ Fruits:AddButton({
     end
 })
 Fruits:AddToggle({
+    Name = "Auto Roll Fruits [Gacha]",
+    Description = "Rolls the Barista Cousin gacha automatically (costs money)",
+    Default = false,
+    Callback = function(value)
+        getgenv().AutoRollFruit = value
+    end
+})
+spawn(function()
+    while task.wait(2) do
+        pcall(function()
+            if getgenv().AutoRollFruit then
+                local CommF_ = game:GetService("ReplicatedStorage").Remotes.CommF_
+                CommF_:InvokeServer("Cousin", "Ask")
+                CommF_:InvokeServer("Cousin", "Buy")
+            end
+        end)
+    end
+end)
+Fruits:AddToggle({
     Name = "Store Fruits",
     Description = "",
     Default = false,
@@ -12515,3 +12635,259 @@ Player:AddButton({
         game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("SetTeam", "Marines")
     end
 })
+
+-- ================= Config System (Save / Load / Auto-Execution) =================
+do
+local ConfigFolder = "Teapot-Hub/Configs"
+
+local function ReadJson(file)
+    local ok, result = pcall(function()
+        if type(readfile) ~= "function" then return nil end
+        if type(isfile) == "function" and not isfile(file) then return nil end
+        return Services.HttpService:JSONDecode(readfile(file))
+    end)
+    if ok then return result end
+    return nil
+end
+
+local function WriteJson(file, tbl)
+    return pcall(function()
+        if type(writefile) ~= "function" then error("writefile not supported") end
+        writefile(file, Services.HttpService:JSONEncode(tbl))
+    end)
+end
+
+local function EnsureConfigFolders()
+    pcall(function()
+        if type(isfolder) == "function" and type(makefolder) == "function" then
+            if not isfolder("Teapot-Hub") then makefolder("Teapot-Hub") end
+            if not isfolder(ConfigFolder) then makefolder(ConfigFolder) end
+        end
+    end)
+end
+
+local function ListConfigs()
+    local names = {}
+    pcall(function()
+        if type(isfolder) == "function" and isfolder(ConfigFolder) and type(listfiles) == "function" then
+            for _, file in ipairs(listfiles(ConfigFolder)) do
+                local fname = string.match(tostring(file), "[^/\\]+$")
+                local name = fname and fname:match("(.+)%.json$")
+                if name and name ~= "AutoloadSettings" then
+                    table.insert(names, name)
+                end
+            end
+        end
+    end)
+    table.sort(names)
+    return names
+end
+
+local function CaptureState()
+    local flags, env = {}, {}
+    for k, v in pairs(_G or {}) do
+        local t = typeof(v)
+        if (t == "boolean" or t == "number" or t == "string") and LoaderState.BaseG[k] ~= v then
+            flags[k] = v
+        end
+    end
+    pcall(function()
+        for k, v in pairs(getgenv()) do
+            local t = typeof(v)
+            if (t == "boolean" or t == "number" or t == "string") and LoaderState.BaseGenv[k] ~= v then
+                env[k] = v
+            end
+        end
+    end)
+    return { Flags = flags, Env = env }
+end
+
+local function ApplyConfig(name, silent)
+    if not name or name == "" then
+        if not silent then
+            Window:Notify({ Title = "Config", Content = "No config selected", Time = 4 })
+        end
+        return false
+    end
+    local data = ReadJson(ConfigFolder .. "/" .. name .. ".json")
+    if type(data) ~= "table" then
+        if not silent then
+            Window:Notify({ Title = "Config", Content = "Config '" .. tostring(name) .. "' not found", Time = 4 })
+        end
+        return false
+    end
+    local count = 0
+    for k, v in pairs(data.Flags or {}) do
+        pcall(function()
+            _G[k] = v
+            count = count + 1
+        end)
+    end
+    for k, v in pairs(data.Env or {}) do
+        pcall(function()
+            getgenv()[k] = v
+            count = count + 1
+        end)
+    end
+    if not silent then
+        Window:Notify({ Title = "Config Loaded", Content = tostring(name) .. " - " .. tostring(count) .. " settings applied", Time = 4 })
+    end
+    return true
+end
+
+local function DeleteConfig(name)
+    if not name or name == "" then
+        Window:Notify({ Title = "Config", Content = "No config selected", Time = 4 })
+        return false
+    end
+    pcall(function()
+        if type(delfile) == "function" then
+            delfile(ConfigFolder .. "/" .. name .. ".json")
+        end
+    end)
+    Window:Notify({ Title = "Config", Content = name .. " deleted", Time = 4 })
+    return true
+end
+
+local AutoloadSettings = ReadJson(ConfigFolder .. "/AutoloadSettings.json") or { Enabled = false, Config = "" }
+
+local function SaveAutoloadSettings()
+    EnsureConfigFolders()
+    WriteJson(ConfigFolder .. "/AutoloadSettings.json", AutoloadSettings)
+end
+
+local CurrentConfigText = ""
+local ConfigNames = ListConfigs()
+local selectedConfig = (AutoloadSettings.Config and AutoloadSettings.Config ~= "") and AutoloadSettings.Config or "None"
+
+ConfigTab = Window:MakeTab({
+    Title = "Config",
+    Icon = "settings"
+})
+ConfigTab:AddSection("Setup")
+ConfigTab:AddParagraph("Config Manager", "Save your toggles into configs. Enable Auto-Load to auto-execute a config every time the script starts.")
+ConfigTab:AddTextBox({
+    Name = "Config Name",
+    Placeholder = "e.g. Level Farm",
+    ClearOnFocus = false,
+    Callback = function(value)
+        CurrentConfigText = value or ""
+    end
+})
+ConfigsDrop = ConfigTab:AddDropdown({
+    Name = "Saved Configs",
+    Options = #ConfigNames > 0 and ConfigNames or { "None" },
+    Default = selectedConfig,
+    Callback = function(value)
+        selectedConfig = value
+        if AutoloadSettings.Enabled and value and value ~= "None" then
+            AutoloadSettings.Config = value
+            SaveAutoloadSettings()
+        end
+    end
+})
+
+local function RefreshConfigList()
+    ConfigNames = ListConfigs()
+    pcall(function()
+        ConfigsDrop:NewOptions(table.unpack(#ConfigNames > 0 and ConfigNames or { "None" }))
+    end)
+end
+
+local function ResolveConfigName()
+    if CurrentConfigText ~= "" then
+        return CurrentConfigText
+    end
+    if selectedConfig and selectedConfig ~= "None" then
+        return selectedConfig
+    end
+    return nil
+end
+
+ConfigTab:AddSection("Actions")
+ConfigTab:AddButton({
+    Name = "Save / Overwrite Config",
+    Description = "Uses the name field, or the selected config",
+    Callback = function()
+        local name = ResolveConfigName()
+        if not name then
+            Window:Notify({ Title = "Config", Content = "Type a config name first", Time = 4 })
+            return
+        end
+        EnsureConfigFolders()
+        if WriteJson(ConfigFolder .. "/" .. name .. ".json", CaptureState()) then
+            Window:Notify({ Title = "Config Saved", Content = name .. " saved successfully", Time = 4 })
+            RefreshConfigList()
+            selectedConfig = name
+        else
+            Window:Notify({ Title = "Config Save Failed", Content = "Your executor does not support writefile", Time = 4 })
+        end
+    end
+})
+ConfigTab:AddButton({
+    Name = "Load Selected Config",
+    Description = "",
+    Callback = function()
+        ApplyConfig(selectedConfig ~= "None" and selectedConfig or nil)
+    end
+})
+ConfigTab:AddButton({
+    Name = "Refresh Config List",
+    Description = "",
+    Callback = function()
+        RefreshConfigList()
+        Window:Notify({ Title = "Config", Content = "Config list refreshed", Time = 3 })
+    end
+})
+ConfigTab:AddButton({
+    Name = "Delete Selected Config",
+    Description = "",
+    Callback = function()
+        if selectedConfig and selectedConfig ~= "None" then
+            DeleteConfig(selectedConfig)
+            RefreshConfigList()
+        else
+            Window:Notify({ Title = "Config", Content = "No config selected", Time = 4 })
+        end
+    end
+})
+
+ConfigTab:AddSection("Auto-Execution")
+ConfigTab:AddToggle({
+    Name = "Auto-Load Config On Start",
+    Description = "Executes the selected config automatically on launch",
+    Default = AutoloadSettings.Enabled == true,
+    Callback = function(value)
+        AutoloadSettings.Enabled = value and true or false
+        if value and selectedConfig and selectedConfig ~= "None" then
+            AutoloadSettings.Config = selectedConfig
+        end
+        SaveAutoloadSettings()
+        if value then
+            local name = AutoloadSettings.Config ~= "" and AutoloadSettings.Config or "None"
+            Window:Notify({ Title = "Auto-Execution", Content = "Auto-load ON - config: " .. name, Time = 4 })
+        else
+            Window:Notify({ Title = "Auto-Execution", Content = "Auto-load disabled", Time = 4 })
+        end
+    end
+})
+
+-- ================= Launch finish: autoload + notifications =================
+task.spawn(function()
+    pcall(function()
+        if AutoloadSettings.Enabled and AutoloadSettings.Config and AutoloadSettings.Config ~= "" then
+            if ApplyConfig(AutoloadSettings.Config, true) then
+                Window:Notify({ Title = "Auto-Execution", Content = "Config '" .. AutoloadSettings.Config .. "' executed on start", Time = 5 })
+            end
+        end
+    end)
+end)
+LoaderStatus("Done!")
+LoaderFinish()
+pcall(function()
+    Window:Notify({ Title = "Teapot-Hub", Content = "Loaded Successfully!", Time = 5 })
+end)
+pcall(function()
+    Services.StarterGui:SetCore("SendNotification", { Title = "Teapot-Hub", Text = "Loaded Successfully!", Duration = 5 })
+end)
+end
