@@ -191,7 +191,7 @@ local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 _G = _G or {}
 _G.SelectWeapon = _G.SelectWeapon or "Melee"
-_G.FastAttack = _G.FastAttack == true
+_G.FastAttack = _G.FastAttack ~= false
 getgenv().Team = getgenv().Team or "Pirates"
 local World1 = game.PlaceId == 2753915549 or game.PlaceId == 85211729168715
 local World2 = game.PlaceId == 4442272183 or game.PlaceId == 79091703265657
@@ -2951,330 +2951,431 @@ end)
 LoaderStatus("Loading UI Library...")
 local Library
 do
-	-- PC UI: AppleLibrary (Mac-style). Mobile version of this script stays on redz UI.
-	local AppleLib
+	-- PC UI: Neverlose (CS2-style). Mobile version of this script stays on redz UI.
+	local NeverLib
 	pcall(function()
-		AppleLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/windowschips/AppleLibrary/main/main.lua"))()
+		NeverLib = loadstring(game:HttpGet("https://github.com/rtyuyuwyuw1/Neverlose-ui-library/raw/refs/heads/main/source.luau"))()
 	end)
-	local AppleWindow
-	if AppleLib then
-		local okInit, winResult = pcall(function()
-			return AppleLib:init("Teapot-Hub [ BETA ACCESS ] : Blox Fruits", false, Enum.KeyCode.LeftControl, true)
+	local NeverWindow
+	if type(NeverLib) == "table" then
+		pcall(function()
+			NeverWindow = NeverLib:CreateWindow({
+				Logo = NeverLib.GlobalLogo,
+				Name = "Teapot-Hub",
+				Content = "Blox Fruits",
+				Size = NeverLib.Scales.Default,
+				ConfigFolder = "Teapot-Hub-UI-Configs",
+				Enable3DRenderer = false,
+				Keybind = "Insert"
+			})
 		end)
-		if okInit and winResult then
-			AppleWindow = winResult
-		end
 	end
-	local IsAppleUI = false
-	if AppleWindow then
-		IsAppleUI = true
-		-- ---------- redz-style adapter on top of AppleLibrary ----------
-		-- locate the Apple root guis (it uses unnamed ScreenGui/main/workarea)
-		local appleRoot
-		local hubOK, hubInstance = pcall(function()
-			return gethui and gethui() or game:GetService("CoreGui")
+	local IsNeverloseUI = false
+	if NeverWindow then
+		IsNeverloseUI = true
+		local notificationLib = nil
+		pcall(function()
+			notificationLib = NeverLib:CreateNotification()
 		end)
-		if hubOK and hubInstance then
-			for _, child in pairs(hubInstance:GetChildren()) do
-				if child:IsA("ScreenGui") and child.Name == "ScreenGui" then
-					local mainFrame = child:FindFirstChild("main")
-					if mainFrame and mainFrame:FindFirstChild("workarea") then
-						appleRoot = child
-					end
-				end
-			end
-		end
-		local registeredAreas = {}
-		local currentArea = nil
-		local function captureNewArea()
-			currentArea = nil
-			if not appleRoot then return end
-			local mainFrame = appleRoot:FindFirstChild("main")
-			local workarea = mainFrame and mainFrame:FindFirstChild("workarea")
-			if not workarea then return end
-			for _, child in pairs(workarea:GetChildren()) do
-				if child.Name == "workareamain" and not registeredAreas[child] then
-					registeredAreas[child] = true
-					currentArea = child
-				end
-			end
-		end
-		local function MakePlainLabel(area, text, textSize, height, color)
-			local label = Instance.new("TextLabel")
-			label.Size = UDim2.new(0, 418, 0, height or 37)
-			label.BackgroundTransparency = 1
-			label.Font = Enum.Font.Gotham
-			label.TextColor3 = color or Color3.fromRGB(95, 95, 95)
-			label.TextSize = textSize or 16
-			label.TextWrapped = true
-			label.Text = tostring(text or "")
-			label.Parent = area
-			return label
+		local function NeverNotify(title, content, duration)
+			pcall(function()
+				notificationLib.new({
+					Title = tostring(title or "Notice"),
+					Content = tostring(content or ""),
+					Duration = tonumber(duration) or 4
+				})
+			end)
 		end
 		Library = {}
+		-- ---------- redz-style adapter on top of Neverlose ----------
 		function Library:MakeWindow(_cfg)
-			local firstTabSelected = false
 			local windowAdapter = {}
-			function windowAdapter:Notify(ncfg)
-				pcall(function()
-					AppleWindow:Notify(tostring(ncfg.Title or "Notice"), tostring(ncfg.Content or ""), "OK", "", function() end)
+			-- watermark with the hub name (click to toggle the interface)
+			pcall(function()
+				local watermark = NeverWindow:Watermark()
+				local brand = watermark:AddBlock("cube-vertexes", "Teapot-Hub")
+				brand:Input(function()
+					pcall(function() NeverWindow:ToggleInterface() end)
 				end)
+			end)
+			-- ---------- custom dialog (Neverlose has no dialog API) ----------
+			local dialogBuilt = false
+			local dialogBack, dialogCard, dialogTitle, dialogContent, dialogButtons = nil, nil, nil, nil, nil
+			local function BuildDialog()
+				if dialogBuilt and dialogBack and dialogBack.Parent then return end
+				local root = Instance.new("ScreenGui")
+				root.Name = "TeapotHub_Dialogs"
+				root.IgnoreGuiInset = true
+				root.ResetOnSpawn = false
+				root.Parent = (gethui and gethui() or game:GetService("CoreGui"))
+				dialogBack = Instance.new("Frame")
+				dialogBack.Size = UDim2.new(1, 0, 1, 0)
+				dialogBack.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+				dialogBack.BackgroundTransparency = 0.45
+				dialogBack.BorderSizePixel = 0
+				dialogBack.Active = true
+				dialogBack.Visible = false
+				dialogBack.Parent = root
+				dialogCard = Instance.new("Frame")
+				dialogCard.AnchorPoint = Vector2.new(0.5, 0.5)
+				dialogCard.Position = UDim2.new(0.5, 0, 0.5, 0)
+				dialogCard.BackgroundColor3 = Color3.fromRGB(20, 22, 27)
+				dialogCard.BorderSizePixel = 0
+				dialogCard.Visible = false
+				dialogCard.Parent = dialogBack
+				local cardCorner = Instance.new("UICorner")
+				cardCorner.CornerRadius = UDim.new(0, 10)
+				cardCorner.Parent = dialogCard
+				dialogTitle = Instance.new("TextLabel")
+				dialogTitle.Position = UDim2.new(0, 16, 0, 12)
+				dialogTitle.Size = UDim2.new(1, -32, 0, 22)
+				dialogTitle.BackgroundTransparency = 1
+				dialogTitle.Font = Enum.Font.GothamBold
+				dialogTitle.TextSize = 15
+				dialogTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+				dialogTitle.TextXAlignment = Enum.TextXAlignment.Left
+				dialogTitle.Text = ""
+				dialogTitle.Parent = dialogCard
+				dialogContent = Instance.new("TextLabel")
+				dialogContent.Position = UDim2.new(0, 16, 0, 40)
+				dialogContent.Size = UDim2.new(1, -32, 0, 70)
+				dialogContent.BackgroundTransparency = 1
+				dialogContent.Font = Enum.Font.Gotham
+				dialogContent.TextSize = 13
+				dialogContent.TextColor3 = Color3.fromRGB(205, 205, 205)
+				dialogContent.TextWrapped = true
+				dialogContent.TextXAlignment = Enum.TextXAlignment.Left
+				dialogContent.TextYAlignment = Enum.TextYAlignment.Top
+				dialogContent.Text = ""
+				dialogContent.Parent = dialogCard
+				dialogButtons = Instance.new("Frame")
+				dialogButtons.AnchorPoint = Vector2.new(1, 1)
+				dialogButtons.Position = UDim2.new(1, -16, 1, -14)
+				dialogButtons.Size = UDim2.new(1, -32, 0, 32)
+				dialogButtons.BackgroundTransparency = 1
+				dialogButtons.Parent = dialogCard
+				local btnLayout = Instance.new("UIListLayout")
+				btnLayout.FillDirection = Enum.FillDirection.Horizontal
+				btnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+				btnLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+				btnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+				btnLayout.Padding = UDim.new(0, 8)
+				btnLayout.Parent = dialogButtons
+				dialogBuilt = true
 			end
-			function windowAdapter:Dialog(dcfg)
+			local function ShowDialog(dcfg)
 				pcall(function()
+					BuildDialog()
 					local title = tostring(dcfg.Title or "Notice")
 					local content = tostring(dcfg.Content or "")
 					local dOptions = dcfg.Options or {}
-					if #dOptions >= 2 then
-						AppleWindow:Notify2(title, content,
-							tostring(dOptions[1].Title or "OK"), tostring(dOptions[2].Title or "Cancel"), "",
-							function() pcall(dOptions[1].Callback or function() end) end,
-							function() pcall(dOptions[2].Callback or function() end) end)
-					elseif #dOptions == 1 then
-						AppleWindow:Notify(title, content, tostring(dOptions[1].Title or "OK"), "", function()
-							pcall(dOptions[1].Callback or function() end)
-						end)
-					else
-						AppleWindow:Notify(title, content, "OK", "", function() end)
+					if #dOptions == 0 then
+						dOptions = { { Title = "OK", Callback = function() end } }
 					end
+					local lines = math.ceil(string.len(content) / 44)
+					if lines < 2 then lines = 2 end
+					if lines > 14 then lines = 14 end
+					local cardHeight = 62 + lines * 17 + 44
+					dialogCard.Size = UDim2.new(0, 340, 0, cardHeight)
+					dialogTitle.Text = title
+					dialogContent.Size = UDim2.new(1, -32, 0, lines * 17)
+					dialogContent.Text = content
+					for _, child in pairs(dialogButtons:GetChildren()) do
+						if child:IsA("TextButton") then
+							child:Destroy()
+						end
+					end
+					for i = 1, #dOptions do
+						local opt = dOptions[i]
+						local btn = Instance.new("TextButton")
+						btn.Size = UDim2.new(1 / #dOptions, -8, 1, 0)
+						btn.Font = Enum.Font.GothamBold
+						btn.TextSize = 13
+						btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+						btn.BackgroundColor3 = Color3.fromRGB(45, 48, 58)
+						if i == 1 then
+							btn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+						end
+						btn.Text = tostring(opt.Title or "OK")
+						btn.Parent = dialogButtons
+						local btnCorner = Instance.new("UICorner")
+						btnCorner.CornerRadius = UDim.new(0, 8)
+						btnCorner.Parent = btn
+						btn.MouseButton1Click:Connect(function()
+							dialogBack.Visible = false
+							pcall(opt.Callback or function() end)
+						end)
+					end
+					dialogBack.Visible = true
+				end)
+			end
+			function windowAdapter:Notify(ncfg)
+				NeverNotify(ncfg and ncfg.Title, ncfg and ncfg.Content, ncfg and ncfg.Time)
+			end
+			function windowAdapter:Dialog(dcfg)
+				ShowDialog(dcfg or {})
+			end
+			Library.SetUIScale = function(_self, scaleValue)
+				pcall(function()
+					local factor = tonumber(scaleValue) or 1
+					NeverWindow:SetSize(UDim2.fromOffset(math.floor(640 * factor + 0.5), math.floor(480 * factor + 0.5)))
 				end)
 			end
 			function windowAdapter:MakeTab(tcfg)
-				local sec, area
+				local nlTab = nil
 				pcall(function()
-					sec = AppleWindow:Section(tostring(tcfg.Title or "Tab"))
-					captureNewArea()
-					area = currentArea
+					nlTab = NeverWindow:AddTab({
+						Icon = tostring(tcfg.Icon or "crosshairs"),
+						Name = tostring(tcfg.Title or "Tab")
+					})
 				end)
-				local dropCounter = 0
-				local function AddDropdownAdapter(tcfgDropdown)
-					dropCounter = dropCounter + 1
-					local area2 = area or currentArea
-					if not area2 then return {} end
-					local dOptions = tcfgDropdown.Options or {}
-					local dCallback = tcfgDropdown.Callback or function() end
-					local dCurrent = tcfgDropdown.Default
-					local container = Instance.new("Frame")
-					container.Size = UDim2.new(0, 418, 0, 37)
-					container.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
-					container.Parent = area2
-					local dCorner = Instance.new("UICorner")
-					dCorner.CornerRadius = UDim.new(0, 9)
-					dCorner.Parent = container
-					local dButton = Instance.new("TextButton")
-					dButton.Size = UDim2.new(1, 0, 1, 0)
-					dButton.BackgroundTransparency = 1
-					dButton.Font = Enum.Font.Gotham
-					dButton.TextColor3 = Color3.fromRGB(21, 103, 251)
-					dButton.TextSize = 21
-					dButton.Parent = container
-					local optionsFrame = Instance.new("Frame")
-					optionsFrame.Size = UDim2.new(0, 418, 0, math.max(1, table.getn and (table.getn(dOptions)) or #dOptions) * 32)
-					optionsFrame.BackgroundTransparency = 1
-					optionsFrame.Visible = false
-					optionsFrame.Parent = area2
-					local oList = Instance.new("UIListLayout")
-					oList.SortOrder = Enum.SortOrder.LayoutOrder
-					oList.Padding = UDim.new(0, 4)
-					oList.Parent = optionsFrame
-					local optionButtons = {}
-					local function UpdateLabel()
-						dButton.Text = tostring(tcfgDropdown.Name or "Select") .. ": " .. tostring(dCurrent or "Select...")
-					end
-					local function BuildOptions(list)
-						for _, ob in pairs(optionButtons) do ob:Destroy() end
-						optionButtons = {}
-						optionsFrame.Size = UDim2.new(0, 418, 0, math.max(1, #list) * 32)
-						for i, opt in ipairs(list) do
-							local ob = Instance.new("TextButton")
-							ob.Size = UDim2.new(1, 0, 0, 28)
-							ob.BackgroundColor3 = Color3.fromRGB(21, 103, 251)
-							ob.BackgroundTransparency = 0.85
-							ob.Font = Enum.Font.Gotham
-							ob.TextColor3 = Color3.fromRGB(21, 103, 251)
-							ob.TextSize = 19
-							ob.Text = tostring(opt)
-							ob.LayoutOrder = i
-							ob.Parent = optionsFrame
-							local oc = Instance.new("UICorner")
-							oc.CornerRadius = UDim.new(0, 8)
-							oc.Parent = ob
-							local os1 = Instance.new("UIStroke")
-							os1.ApplyStrokeMode = "Border"
-							os1.Color = Color3.fromRGB(21, 103, 251)
-							os1.Thickness = 1
-							os1.Parent = ob
-							local optVal = opt
-							ob.MouseButton1Click:Connect(function()
-								dCurrent = optVal
-								UpdateLabel()
-								optionsFrame.Visible = false
-								pcall(dCallback, dCurrent)
-							end)
-							optionButtons[i] = ob
-						end
-					end
-					BuildOptions(dOptions)
-					UpdateLabel()
-					dButton.MouseButton1Click:Connect(function()
-						optionsFrame.Visible = not optionsFrame.Visible
-					end)
-					return {
-						NewOptions = function(_, ...)
-							local newOpts = { ... }
-							BuildOptions(newOpts)
-						end
-					}
-				end
 				local tab = {}
-				function tab:AddSection(_, text)
-					pcall(function() sec:Divider(tostring(text)) end)
-				end
-				function tab:AddButton(bcfg)
-					pcall(function()
-						sec:Button(tostring(bcfg.Name or "Button"), function()
-							pcall(bcfg.Callback or function() end)
+				local currentSection = nil
+				local sectionPosition = "right"
+				local dropCounter = 0
+				function tab:AddSection(secName)
+					sectionPosition = (sectionPosition == "left") and "right" or "left"
+					local nlSec = nil
+					if nlTab then
+						pcall(function()
+							nlSec = nlTab:AddSection({
+								Name = tostring(secName or "SECTION"),
+								Position = sectionPosition
+							})
 						end)
-					end)
+					end
+					currentSection = nlSec
+					return nil
+				end
+				local function ensureSection()
+					if currentSection == nil then
+						tab:AddSection("More")
+					end
+					return currentSection
 				end
 				function tab:AddToggle(tcfg)
+					local sec = ensureSection()
+					local tName = tostring(tcfg.Name or "Toggle")
+					local tDesc = tostring(tcfg.Description or "")
+					local labelBase = nil
 					pcall(function()
-						local tLabel = tostring(tcfg.Name or "Toggle")
-						local tDesc = tostring(tcfg.Description or "")
-						if tDesc ~= "" and string.len(tDesc) <= 40 then
-							tLabel = tLabel .. "  (" .. tDesc .. ")"
-						end
-						sec:Switch(tLabel, tcfg.Default and true or false, function(tValue)
-							pcall(tcfg.Callback or function() end, tValue and true or false)
+						labelBase = sec and sec:AddLabel(tName, true) or nil
+					end)
+					local shown = tName
+					if tDesc ~= "" then
+						shown = tName .. "\n" .. tDesc
+					end
+					pcall(function()
+						labelBase:SetText(shown)
+					end)
+					local toggleLib = nil
+					if labelBase then
+						pcall(function()
+							toggleLib = labelBase:AddToggle({
+								Default = tcfg.Default and true or false,
+								Callback = function(value)
+									pcall(tcfg.Callback or function() end, value and true or false)
+								end
+							})
 						end)
+					end
+					-- fire the callback once with the starting value so features match the UI state
+					pcall(tcfg.Callback or function() end, tcfg.Default and true or false)
+					local shim = {}
+					function shim:SetDescription(text)
+						pcall(function()
+							if labelBase then
+								if tDesc ~= "" then
+									labelBase:SetText(tName .. "\n" .. tostring(text or ""))
+								else
+									labelBase:SetText(tName .. "  -  " .. tostring(text or ""))
+								end
+							end
+						end)
+					end
+					function shim:GetValue()
+						if toggleLib then
+							return toggleLib:GetValue()
+						end
+						return nil
+					end
+					function shim:SetValue(v)
+						pcall(function()
+							toggleLib:SetValue(v and true or false)
+						end)
+					end
+					return shim
+				end
+				function tab:AddButton(bcfg)
+					local sec = ensureSection()
+					if not sec then return end
+					pcall(function()
+						local bName = tostring(bcfg.Name or "Button")
+						local bDesc = tostring(bcfg.Description or "")
+						if bDesc ~= "" then
+							bName = bName .. "  (" .. bDesc .. ")"
+						end
+						sec:AddButton({
+							Name = bName,
+							Callback = bcfg.Callback or function() end
+						})
 					end)
 				end
 				function tab:AddParagraph(tcfgOrTitle, maybeDesc)
+					local sec = ensureSection()
 					local title = (type(tcfgOrTitle) == "table") and tostring(tcfgOrTitle.Title or "") or tostring(tcfgOrTitle or "")
 					local desc = (type(tcfgOrTitle) == "table") and tostring(tcfgOrTitle.Description or "") or tostring(maybeDesc or "")
-					pcall(function() sec:Divider(title) end)
-					if not area then return { SetDescription = function() end } end
-					local pLabel = MakePlainLabel(area, desc, 16, 37, Color3.fromRGB(95, 95, 95))
+					local nlLabel = nil
+					pcall(function()
+						nlLabel = sec and sec:AddLabel(title, true) or nil
+					end)
+					local full = title
+					if desc ~= "" then
+						full = title .. "\n" .. desc
+					end
+					pcall(function()
+						nlLabel:SetText(full)
+					end)
 					local pobj = {}
-					function pobj:SetDescription(_, text)
-						pcall(function() pLabel.Text = tostring(text or "") end)
+					function pobj:SetDescription(text)
+						pcall(function()
+							if nlLabel then
+								if string.len(title) > 0 then
+									nlLabel:SetText(title .. "\n" .. tostring(text or ""))
+								else
+									nlLabel:SetText(tostring(text or ""))
+								end
+							end
+						end)
 					end
 					return pobj
 				end
 				function tab:AddDropdown(dcfg)
-					return AddDropdownAdapter(dcfg)
+					dropCounter = dropCounter + 1
+					local sec = ensureSection()
+					if not sec then
+						return { NewOptions = function() end }
+					end
+					local dOptions = dcfg.Options or dcfg.Values or {}
+					local dCallback = dcfg.Callback or function() end
+					local dName = tostring(dcfg.Name or "Dropdown")
+					local nlLabel = nil
+					local dnLib = nil
+					pcall(function()
+						nlLabel = sec:AddLabel(dName, true)
+					end)
+					pcall(function()
+						nlLabel:SetText(dName)
+					end)
+					pcall(function()
+						dnLib = nlLabel and nlLabel:AddDropdown({
+							Values = dOptions,
+							Default = dcfg.Default,
+							Multi = false,
+							Callback = function(value)
+								pcall(dCallback, value)
+							end
+						})
+					end)
+					local dobj = {}
+					function dobj:NewOptions(...)
+						local newOpts = { ... }
+						pcall(function()
+							if dnLib then
+								dnLib:SetValues(newOpts)
+							end
+						end)
+					end
+					function dobj:SetValue(v)
+						pcall(function()
+							dnLib:SetValue(v)
+						end)
+					end
+					function dobj:GetValue()
+						if dnLib then
+							return dnLib:GetValue()
+						end
+						return nil
+					end
+					return dobj
 				end
 				function tab:AddSlider(scfg)
-					local area2 = area or currentArea
-					if not area2 then return end
-					local minV = tonumber(scfg.Min) or 0
-					local maxV = tonumber(scfg.Max) or 1
-					local value = tonumber(scfg.Default) or minV
-					local step = (maxV - minV) / 20
-					if step <= 0 then step = 0.1 end
-					if step >= 1 then step = math.floor(step + 0.5) else step = math.floor(step * 100 + 0.5) / 100 end
-					local holder = Instance.new("Frame")
-					holder.Size = UDim2.new(0, 418, 0, 37)
-					holder.BackgroundTransparency = 1
-					holder.Parent = area2
-					local sLabel = Instance.new("TextLabel")
-					sLabel.Size = UDim2.new(0, 240, 1, 0)
-					sLabel.BackgroundTransparency = 1
-					sLabel.Font = Enum.Font.Gotham
-					sLabel.TextColor3 = Color3.fromRGB(95, 95, 95)
-					sLabel.TextSize = 21
-					sLabel.TextWrapped = true
-					sLabel.TextXAlignment = Enum.TextXAlignment.Left
-					sLabel.Text = tostring(scfg.Name or "Slider")
-					sLabel.Parent = holder
-					local valueLabel = Instance.new("TextLabel")
-					valueLabel.Size = UDim2.new(0, 50, 1, 0)
-					valueLabel.Position = UDim2.new(0.6, 0, 0, 0)
-					valueLabel.BackgroundTransparency = 1
-					valueLabel.Font = Enum.Font.Gotham
-					valueLabel.TextColor3 = Color3.fromRGB(21, 103, 251)
-					valueLabel.TextSize = 21
-					valueLabel.Text = tostring(math.floor(value * 100 + 0.5) / 100)
-					valueLabel.Parent = holder
-					local minusBtn = Instance.new("TextButton")
-					minusBtn.Size = UDim2.new(0, 30, 0, 30)
-					minusBtn.Position = UDim2.new(0.75, 0, 0, 4)
-					minusBtn.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
-					minusBtn.Font = Enum.Font.Gotham
-					minusBtn.TextColor3 = Color3.fromRGB(21, 103, 251)
-					minusBtn.TextSize = 21
-					minusBtn.Text = "-"
-					minusBtn.Parent = holder
-					local mCorner = Instance.new("UICorner")
-					mCorner.CornerRadius = UDim.new(0, 8)
-					mCorner.Parent = minusBtn
-					local plusBtn = Instance.new("TextButton")
-					plusBtn.Size = UDim2.new(0, 30, 0, 30)
-					plusBtn.Position = UDim2.new(0.9, 0, 0, 4)
-					plusBtn.BackgroundColor3 = Color3.fromRGB(240, 240, 240)
-					plusBtn.Font = Enum.Font.Gotham
-					plusBtn.TextColor3 = Color3.fromRGB(21, 103, 251)
-					plusBtn.TextSize = 21
-					plusBtn.Text = "+"
-					plusBtn.Parent = holder
-					local pCorner = Instance.new("UICorner")
-					pCorner.CornerRadius = UDim.new(0, 8)
-					pCorner.Parent = plusBtn
-					minusBtn.MouseButton1Click:Connect(function()
-						value = value - step
-						if value < minV then value = minV end
-						valueLabel.Text = tostring(math.floor(value * 100 + 0.5) / 100)
-						pcall(scfg.Callback or function() end, value)
+					local sec = ensureSection()
+					if not sec then return end
+					pcall(function()
+						local sName = tostring(scfg.Name or "Slider")
+						local sDesc = tostring(scfg.Description or "")
+						local sLabel = sec:AddLabel(sName, true)
+						local shown = sName
+						if sDesc ~= "" then
+							shown = shown .. "\n" .. sDesc
+						end
+						sLabel:SetText(shown)
+						sLabel:AddSlider({
+							Min = tonumber(scfg.Min) or 0,
+							Max = tonumber(scfg.Max) or 1,
+							Default = tonumber(scfg.Default) or 0,
+							Type = tostring(scfg.Suffix or ""),
+							Callback = function(value)
+								pcall(scfg.Callback or function() end, value)
+							end
+						})
 					end)
-					plusBtn.MouseButton1Click:Connect(function()
-						value = value + step
-						if value > maxV then value = maxV end
-						valueLabel.Text = tostring(math.floor(value * 100 + 0.5) / 100)
-						pcall(scfg.Callback or function() end, value)
+				end
+				function tab:AddTextBox(tcfg)
+					local sec = ensureSection()
+					if not sec then return end
+					pcall(function()
+						local tLabel = sec:AddLabel(tostring(tcfg.Name or "Input"), true)
+						tLabel:SetText(tostring(tcfg.Name or "Input"))
+						tLabel:AddTextInput({
+							Placeholder = tostring(tcfg.Placeholder or "Type..."),
+							Callback = function(value)
+								pcall(tcfg.Callback or function() end, value)
+							end
+						})
 					end)
 				end
 				function tab:AddDiscordInvite(icfg)
-					pcall(function() sec:Divider(tostring(icfg and icfg.Title or "Discord")) end)
-					if area then
-						MakePlainLabel(area, tostring(icfg and icfg.Description or ""), 21, 26, Color3.fromRGB(0, 0, 0))
-						MakePlainLabel(area, tostring(icfg and icfg.Invite or ""), 16, 24, Color3.fromRGB(95, 95, 95))
-						pcall(function()
-							sec:Button("Copy Discord Invite", function()
-								local invite = tostring(icfg and icfg.Invite or "")
+					local sec = ensureSection()
+					if not sec then return end
+					pcall(function()
+						local ilTitle = tostring(icfg and icfg.Title or "Discord")
+						local ilDesc = tostring(icfg and icfg.Description or "")
+						local invite = tostring(icfg and icfg.Invite or "")
+						local ilabel = sec:AddLabel(ilTitle, true)
+						local full = ilTitle
+						if ilDesc ~= "" then
+							full = ilTitle .. "\n" .. ilDesc
+						end
+						ilabel:SetText(full)
+						sec:AddButton({
+							Name = "Copy Discord Invite",
+							Callback = function()
 								local copied = false
 								if setclipboard then pcall(function() setclipboard(invite) end) copied = true end
 								if not copied and toclipboard then pcall(function() toclipboard(invite) end) copied = true end
-								pcall(function()
-									AppleWindow:Notify("Discord", copied and "Invite copied to clipboard" or "Copy not supported", "OK", "", function() end)
-								end)
-							end)
-						end)
-					end
-				end
-				function tab:AddTextBox(tcfg)
-					pcall(function()
-						sec:TextField(tostring(tcfg.Name or "Input"), tostring(tcfg.Placeholder or "Type..."), function(text)
-							pcall(tcfg.Callback or function() end, text)
-						end)
+								if copied then
+									NeverNotify("Discord", "Invite copied to clipboard", 3)
+								else
+									NeverNotify("Discord", "Copy not supported on this executor", 3)
+								end
+							end
+						})
 					end)
-				end
-				if not firstTabSelected then
-					firstTabSelected = true
-					pcall(function() sec:Select() end)
 				end
 				return tab
 			end
-			function windowAdapter:NewMinimizer(_mConfig)
-				-- AppleLibrary handles the minimize key (LeftControl) and the yellow button itself
-				return {}
-			end
-			function windowAdapter._AddDiscordInviteFallback() end
-			-- NOTE: tab-level AddDiscordInvite is implemented below in the tab factory
-			windowAdapter._apple = true
-			return windowAdapter
+				function windowAdapter:NewMinimizer(_mConfig)
+					-- Neverlose toggles the interface itself with its own keybind (Insert)
+					return {}
+				end
+				-- NOTE: tab-level AddDiscordInvite is implemented above in the tab factory
+				windowAdapter._neverlose = true
+				return windowAdapter
 			end
 		end
-	if not IsAppleUI then
+	if not IsNeverloseUI then
 		-- fallback: redz UI (like the mobile version)
 		local ok, err = pcall(function()
 			Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/tlredz/Library/refs/heads/main/redz-V5-remake/main.luau"))()
